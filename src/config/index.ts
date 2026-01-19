@@ -8,13 +8,10 @@ export const config = {
     nodeEnv: process.env.NODE_ENV || 'development',
   },
   naverWorks: {
+    botId: process.env.NAVER_WORKS_BOT_ID || '',
+    domainId: process.env.NAVER_WORKS_DOMAIN_ID || '',
     clientId: process.env.NAVER_WORKS_CLIENT_ID || '',
     clientSecret: process.env.NAVER_WORKS_CLIENT_SECRET || '',
-    serviceAccount: process.env.NAVER_WORKS_SERVICE_ACCOUNT || '',
-    botId: process.env.NAVER_WORKS_BOT_ID || '',
-    redirectUri: process.env.NAVER_WORKS_REDIRECT_URI || '',
-    loginId: process.env.NAVER_WORKS_LOGIN_ID || '',
-    loginPw: process.env.NAVER_WORKS_LOGIN_PW || '',
   },
   database: {
     server: process.env.DB_SERVER || '',
@@ -24,4 +21,5 @@ export const config = {
     password: process.env.DB_PASSWORD || '',
     encrypt: process.env.DB_ENCRYPT === 'true',
   },
+  secretKey: process.env.SECRET_KEY || '',
 };

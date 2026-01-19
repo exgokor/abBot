@@ -7,6 +7,7 @@
     "dev": "nodemon --exec ts-node src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "scheduled-job": "ts-node src/scripts/scheduledJob.ts",
     "docker:build": "docker build -t naverworks-bot .",
     "docker:run": "docker run -p 8080:8080 --env-file .env naverworks-bot"
   },
@@ -23,11 +24,12 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "mssql": "^11.0.1",
-    "puppeteer-core": "^23.11.1",
+    "puppeteer": "^24.35.0",
     "winston": "^3.17.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
+    "@types/mssql": "^9.1.9",
     "@types/node": "^22.10.7",
     "nodemon": "^3.1.9",
     "ts-node": "^10.9.2",

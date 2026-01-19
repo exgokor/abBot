@@ -1,10 +1,15 @@
 import { logger } from '../../utils/logger';
-import { getValidAccessToken, refreshAccessToken, getStoredToken } from '../naverworks/auth';
-import { refreshTokenViaPuppeteer } from './puppeteer';
+import { getAccessToken } from '../naverworks/auth';
 
+/**
+ * 토큰 관리자 (Singleton)
+ * - 동시 요청 시 중복 갱신 방지
+ * - 토큰 갱신 재시도 로직
+ */
 export class TokenManager {
   private static instance: TokenManager;
   private isRefreshing = false;
+  private refreshPromise: Promise<string> | null = null;
 
   private constructor() {}
 
@@ -15,61 +20,35 @@ export class TokenManager {
     return TokenManager.instance;
   }
 
-  async getAccessToken(): Promise<string> {
-    try {
-      return await getValidAccessToken();
-    } catch (error) {
-      logger.warn('Failed to get valid access token, attempting refresh...');
-      return this.handleTokenRefresh();
-    }
-  }
-
-  private async handleTokenRefresh(): Promise<string> {
-    if (this.isRefreshing) {
-      // 다른 요청에서 이미 갱신 중이면 대기
-      await this.waitForRefresh();
-      return this.getAccessToken();
+  /**
+   * Access Token 조회 (동시 요청 시 중복 갱신 방지)
+   */
+  async getToken(): Promise<string> {
+    // 이미 갱신 중이면 기존 Promise 반환
+    if (this.isRefreshing && this.refreshPromise) {
+      logger.debug('Token refresh in progress, waiting...');
+      return this.refreshPromise;
     }
 
     this.isRefreshing = true;
+    this.refreshPromise = this.fetchToken();
 
     try {
-      // 1단계: refresh_token으로 access_token 갱신 시도
-      const storedToken = await getStoredToken();
-      if (storedToken) {
-        try {
-          const newToken = await refreshAccessToken(storedToken.refreshToken);
-          logger.info('Token refreshed via refresh_token');
-          return newToken.access_token;
-        } catch (refreshError) {
-          logger.warn('Refresh token expired or invalid, trying Puppeteer...');
-        }
-      }
-
-      // 2단계: Puppeteer로 브라우저 자동화하여 새 토큰 획득
-      const puppeteerResult = await refreshTokenViaPuppeteer();
-      if (puppeteerResult.success && puppeteerResult.accessToken) {
-        logger.info('Token refreshed via Puppeteer');
-        return puppeteerResult.accessToken;
-      }
-
-      throw new Error('All token refresh methods failed');
+      const token = await this.refreshPromise;
+      return token;
     } finally {
       this.isRefreshing = false;
+      this.refreshPromise = null;
     }
   }
 
-  private async waitForRefresh(): Promise<void> {
-    const maxWait = 60000; // 60초
-    const interval = 1000; // 1초
-    let waited = 0;
-
-    while (this.isRefreshing && waited < maxWait) {
-      await new Promise((resolve) => setTimeout(resolve, interval));
-      waited += interval;
-    }
+  private async fetchToken(): Promise<string> {
+    return await getAccessToken();
   }
 
+  /**
+   * 토큰을 사용하는 작업 실행 (실패 시 자동 재시도)
+   */
   async executeWithToken<T>(
     operation: (accessToken: string) => Promise<T>,
     retries = 1
@@ -78,14 +57,13 @@ export class TokenManager {
 
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
-        const token = await this.getAccessToken();
+        const token = await this.getToken();
         return await operation(token);
       } catch (error) {
         lastError = error instanceof Error ? error : new Error('Unknown error');
 
-        if (lastError.message === 'TOKEN_EXPIRED' && attempt < retries) {
-          logger.info(`Token expired, retrying (attempt ${attempt + 1}/${retries})...`);
-          // 토큰 갱신 후 재시도
+        if (attempt < retries) {
+          logger.warn(`Operation failed, retrying (${attempt + 1}/${retries})...`);
           continue;
         }
 

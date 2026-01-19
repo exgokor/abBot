@@ -3,7 +3,21 @@
     "allow": [
       "Bash(dir \"c:\\\\NodeJS\\\\AB_newBotByClaudeCode\")",
       "Bash(git config:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nInitial commit: NaverWorks Bot Backend\n\n- Express.js + TypeScript setup\n- NaverWorks webhook handler\n- Token management with Puppeteer for auto-refresh\n- MSSQL database integration\n- User permission system \\(USER/ADMIN/SUPER_ADMIN\\)\n- Flexible Template message support\n- Docker + GCP Cloud Build configuration\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git branch:*)",
+      "Bash(git push:*)",
+      "Bash(cmdkey /delete:git:https://github.com)",
+      "Bash(cmdkey /delete:LegacyGeneric:target=git:https://github.com)",
+      "Bash(npm install)",
+      "Bash(npm run build:*)",
+      "Bash(npm i:*)",
+      "Bash(npx ts-node:*)",
+      "Bash(echo:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run scheduled-job:*)",
+      "Bash(ls:*)",
+      "Bash(git commit:*)"
     ]
   }
 }

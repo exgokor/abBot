@@ -1,26 +1,86 @@
 import axios from 'axios';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
-import { getValidAccessToken } from './auth';
+import { getAccessToken } from './auth';
 import { FlexibleTemplate, TextContent } from './types';
 
 const API_BASE_URL = 'https://www.worksapis.com/v1.0';
 
+export interface WorksUser {
+  email: string;
+  fullName: string;
+  type: string;
+  userID: string;
+  birthday: string;
+  birthType: string;
+  positionName: string;
+  level: string;
+  position: string;
+}
+
+/**
+ * NaverWorks 사용자 목록 조회
+ */
+export async function usersList(): Promise<WorksUser[]> {
+  const accessToken = await getAccessToken();
+  const getURL = `${API_BASE_URL}/users?domainId=${config.naverWorks.domainId}`;
+
+  try {
+    const response = await axios.get(getURL, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    const json = response.data;
+
+    const list: WorksUser[] = json.users.map((js: any) => ({
+      email: js.email,
+      fullName: js.userName?.lastName + js.userName?.firstName,
+      type: js.employmentTypeName || '',
+      userID: js.userId,
+      birthday: js.birthday || '',
+      birthType: js.birthdayCalendarType || '',
+      positionName: js.organizations?.[0]?.orgUnits?.[0]?.orgUnitName || '',
+      level: js.organizations?.[0]?.levelName || '',
+      position: js.organizations?.[0]?.orgUnits?.[0]?.positionName || '',
+    }));
+
+    logger.info(`Fetched ${list.length} users from NaverWorks`);
+    return list;
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      logger.error(`Failed to fetch users: ${error.response?.status} ${JSON.stringify(error.response?.data)}`);
+    }
+    throw error;
+  }
+}
+
 export async function sendTextMessage(userId: string, text: string): Promise<void> {
-  const content: TextContent = {
-    contentType: 'text',
-    content: { text },
+  // NaverWorks Bot API 형식: content.type = 'text'
+  const body = {
+    content: {
+      type: 'text',
+      text: text,
+    },
   };
 
-  await sendMessage(userId, content);
+  await sendMessage(userId, body);
 }
 
-export async function sendFlexMessage(userId: string, flexContent: FlexibleTemplate): Promise<void> {
-  await sendMessage(userId, flexContent);
+export async function sendFlexMessage(userId: string, flexContent: any): Promise<void> {
+  // NaverWorks Bot API 형식: content.type = 'flex'
+  const body = {
+    content: {
+      type: 'flex',
+      altText: 'Flexible Template',
+      contents: flexContent.content || flexContent,
+    },
+  };
+
+  await sendMessage(userId, body);
 }
 
-async function sendMessage(userId: string, content: TextContent | FlexibleTemplate): Promise<void> {
-  const accessToken = await getValidAccessToken();
+async function sendMessage(userId: string, content: any): Promise<void> {
+  const accessToken = await getAccessToken();
 
   try {
     await axios.post(
@@ -36,7 +96,8 @@ async function sendMessage(userId: string, content: TextContent | FlexibleTempla
     logger.info(`Message sent to user: ${userId}`);
   } catch (error) {
     if (axios.isAxiosError(error)) {
-      logger.error(`Failed to send message: ${error.response?.status} ${error.response?.data}`);
+      logger.error(`Failed to send message: ${error.response?.status}`);
+      logger.error(`Error detail: ${JSON.stringify(error.response?.data)}`);
 
       // 401 에러시 토큰 갱신 후 재시도
       if (error.response?.status === 401) {
