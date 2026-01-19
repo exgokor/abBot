@@ -1,0 +1,36 @@
+{
+  "name": "naverworks-bot",
+  "version": "1.0.0",
+  "description": "NaverWorks Bot Backend for GCP Cloud Run",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "nodemon --exec ts-node src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "docker:build": "docker build -t naverworks-bot .",
+    "docker:run": "docker run -p 8080:8080 --env-file .env naverworks-bot"
+  },
+  "keywords": [
+    "naverworks",
+    "bot",
+    "gcp",
+    "cloud-run"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.7.9",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "mssql": "^11.0.1",
+    "puppeteer-core": "^23.11.1",
+    "winston": "^3.17.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.7",
+    "nodemon": "^3.1.9",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3"
+  }
+}

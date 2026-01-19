@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir \"c:\\\\NodeJS\\\\AB_newBotByClaudeCode\")",
+      "Bash(git config:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}
