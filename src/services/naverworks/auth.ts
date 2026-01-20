@@ -1,4 +1,5 @@
 import axios from 'axios';
+import puppeteer from 'puppeteer';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
 import { getEncryptedValue, setEncryptedValue } from '../database/envDB';
@@ -62,7 +63,9 @@ export async function refreshAccessToken(): Promise<string> {
   }
 
   if (!response) {
-    throw new Error('Failed to get access token after retries');
+    // RefreshToken도 만료됨 → Puppeteer로 재발행
+    logger.warn('Refresh token expired, reissuing via Puppeteer...');
+    return await reissueRefreshToken();
   }
 
   const { access_token, refresh_token } = response;
@@ -106,4 +109,82 @@ export async function getStoredAccessToken(): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Puppeteer로 로그인하여 authorization code 획득
+ */
+async function getAuthCode(): Promise<{ browser: any; authCode: string }> {
+  logger.info('Starting Puppeteer to get auth code...');
+
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+  });
+
+  const page = await browser.newPage();
+
+  const authUrl = `${config.naverWorks.authUrl}&client_id=${config.naverWorks.clientId}&redirect_uri=${config.naverWorks.redirectUri}`;
+  logger.info(`Auth URL: ${authUrl}`);
+
+  await page.goto(authUrl);
+
+  // ID 입력
+  await page.waitForSelector('#user_id');
+  await page.type('#user_id', config.naverWorks.adminId);
+
+  // Password 입력
+  await page.waitForSelector('#user_pwd');
+  await page.type('#user_pwd', config.naverWorks.adminPw);
+
+  // 로그인 버튼 클릭 및 리다이렉트 대기
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: 'networkidle2' }),
+    page.click('#loginBtn'),
+  ]);
+
+  const currentUrl = page.url();
+  logger.info(`Redirected URL: ${currentUrl}`);
+
+  // URL에서 code 파라미터 추출
+  const urlParams = new URL(currentUrl).searchParams;
+  const authCode = urlParams.get('code');
+
+  if (!authCode) {
+    await browser.close();
+    throw new Error('인증 코드를 찾을 수 없습니다');
+  }
+
+  logger.info('Auth code obtained successfully');
+  return { browser, authCode };
+}
+
+/**
+ * Puppeteer로 RefreshToken 재발행
+ */
+export async function reissueRefreshToken(): Promise<string> {
+  logger.info('Reissuing refresh token via Puppeteer...');
+
+  const { browser, authCode } = await getAuthCode();
+
+  const payload = {
+    code: authCode,
+    grant_type: 'authorization_code',
+    client_id: config.naverWorks.clientId,
+    client_secret: config.naverWorks.clientSecret,
+  };
+
+  const response = await makeTokenRequest(TOKEN_URL, payload);
+  await browser.close();
+
+  if (!response) {
+    throw new Error('Failed to reissue refresh token');
+  }
+
+  const { access_token, refresh_token } = response;
+  await setEncryptedValue('ACCESS_TOKEN', access_token);
+  await setEncryptedValue('REFRESH_TOKEN', refresh_token);
+
+  logger.info('Refresh token reissued and saved to DB');
+  return access_token;
 }

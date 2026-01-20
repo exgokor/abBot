@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
-import { getAccessToken } from './auth';
+import { getAccessToken, refreshAccessToken } from './auth';
 import { FlexibleTemplate, TextContent } from './types';
 
 const API_BASE_URL = 'https://www.worksapis.com/v1.0';
@@ -80,7 +80,7 @@ export async function sendFlexMessage(userId: string, flexContent: any): Promise
 }
 
 async function sendMessage(userId: string, content: any): Promise<void> {
-  const accessToken = await getAccessToken();
+  let accessToken = await getAccessToken();
 
   try {
     await axios.post(
@@ -95,15 +95,29 @@ async function sendMessage(userId: string, content: any): Promise<void> {
     );
     logger.info(`Message sent to user: ${userId}`);
   } catch (error) {
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
+      logger.info('Token expired, refreshing and retrying...');
+
+      // 토큰 갱신 후 재시도
+      accessToken = await refreshAccessToken();
+
+      await axios.post(
+        `${API_BASE_URL}/bots/${config.naverWorks.botId}/users/${userId}/messages`,
+        content,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      logger.info(`Message sent to user (after token refresh): ${userId}`);
+      return;
+    }
+
     if (axios.isAxiosError(error)) {
       logger.error(`Failed to send message: ${error.response?.status}`);
       logger.error(`Error detail: ${JSON.stringify(error.response?.data)}`);
-
-      // 401 에러시 토큰 갱신 후 재시도
-      if (error.response?.status === 401) {
-        logger.info('Token expired, will retry after refresh...');
-        throw new Error('TOKEN_EXPIRED');
-      }
     }
     throw error;
   }
