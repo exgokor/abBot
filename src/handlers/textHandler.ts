@@ -1,6 +1,7 @@
 import { TextMessageRequest } from './index';
 import { logger } from '../utils/logger';
 import { sendTextMessage, sendFlexMessage, createTextBubble, createButtonBubble } from '../services/naverworks/message';
+import { checkRegionExists, getRegionSales, createRegionCarousel } from '../services/sales/regionSales';
 
 /**
  * 텍스트 메시지 처리
@@ -55,6 +56,12 @@ async function handleCommand(userId: string, text: string): Promise<void> {
  * 일반 텍스트 처리
  */
 async function handleGeneralText(userId: string, text: string): Promise<void> {
+  // DB에서 지역 데이터 존재 확인
+  if (await checkRegionExists(text)) {
+    await handleRegionSearch(userId, text);
+    return;
+  }
+
   // 기본 응답 - 메뉴 안내
   const flexMessage = createButtonBubble(
     '무엇을 도와드릴까요?',
@@ -65,6 +72,30 @@ async function handleGeneralText(userId: string, text: string): Promise<void> {
   );
 
   await sendFlexMessage(userId, flexMessage);
+}
+
+/**
+ * 지역 매출 조회
+ */
+async function handleRegionSearch(userId: string, keyword: string): Promise<void> {
+  logger.info(`Region search: ${keyword} for user ${userId}`);
+
+  try {
+    const result = await getRegionSales(keyword);
+
+    if (!result) {
+      await sendTextMessage(userId, `'${keyword}' 지역의 매출 데이터가 없습니다.`);
+      return;
+    }
+
+    const carousel = createRegionCarousel(keyword, result);
+    await sendFlexMessage(userId, carousel);
+
+    logger.info(`Region carousel sent for ${keyword}`);
+  } catch (error) {
+    logger.error(`Region search error:`, error);
+    await sendTextMessage(userId, `지역 조회 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.`);
+  }
 }
 
 /**
