@@ -56,22 +56,18 @@ async function handleCommand(userId: string, text: string): Promise<void> {
  * 일반 텍스트 처리
  */
 async function handleGeneralText(userId: string, text: string): Promise<void> {
-  // DB에서 지역 데이터 존재 확인
-  if (await checkRegionExists(text)) {
-    await handleRegionSearch(userId, text);
-    return;
+  try {
+    // DB에서 지역 데이터 존재 확인
+    if (await checkRegionExists(text)) {
+      await handleRegionSearch(userId, text);
+      return;
+    }
+  } catch (error) {
+    logger.error(`checkRegionExists error for "${text}":`, error);
   }
 
-  // 기본 응답 - 메뉴 안내
-  const flexMessage = createButtonBubble(
-    '무엇을 도와드릴까요?',
-    [
-      { label: '메뉴', text: '/menu' },
-      { label: '도움말', text: '/help' },
-    ]
-  );
-
-  await sendFlexMessage(userId, flexMessage);
+  // 지역으로 조회되지 않으면 단순 텍스트 응답
+  await sendTextMessage(userId, `[${text}] 해당 지역명으로 조회되지 않습니다.`);
 }
 
 /**
