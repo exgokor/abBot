@@ -448,3 +448,317 @@ userId로 email 조회 → CSO_TBL에서 cso_cd 목록 조회
 | "삼성서울병원 매출" | VW_CSO_SALES_SUMMARY | hos_name LIKE '%삼성서울%' |
 | "리피어정 매출 현황" | VW_CSO_SALES_SUMMARY | drug_name LIKE '%리피어%' |
 | "이번 달 정산 예상" | SALES_TBL + DRUG_TBL (수수료율) | pay_index = 현재 |
+
+---
+
+## 생성된 뷰 테이블 (_byClaude 접미사)
+
+> 모든 뷰는 `_byClaude` 접미사로 구분됨
+> 생성 스크립트: `src/scripts/createViews.ts`
+> 실행: `npx ts-node src/scripts/createViews.ts`
+
+### 집계 뷰
+
+#### V_SALES_DETAIL_byClaude
+매출 상세 (모든 마스터 테이블 조인)
+
+| Column | Description |
+|--------|-------------|
+| hos_cd, hos_cso_cd | 병원 키 |
+| drug_cd, seq | 품목/블록 키 |
+| cso_cd_then | 당시 CSO |
+| drug_cnt, drug_price, pay_rate | 매출 계산용 |
+| sales_year, sales_month, sales_index | 처방 기간 |
+| cso_dealer_nm, cso_corp_nm | CSO 정보 |
+| hos_name, hos_abbr, hosIndex | 병원 정보 |
+| drug_name, drug_class, drug_category | 품목 정보 |
+| **sales_amount** | 계산된 매출 (drug_cnt * drug_price * pay_rate) |
+
+#### V_CSO_MONTHLY_SALES_byClaude
+CSO별 월별 매출 집계
+
+| Column | Description |
+|--------|-------------|
+| cso_cd, cso_dealer_nm, cso_corp_nm | CSO 정보 |
+| sales_year, sales_month, sales_index | 기간 |
+| hospital_count | 거래 병원수 |
+| drug_count | 거래 품목수 (drug_cnt > 0) |
+| drug_class_count | 품목군수 |
+| **total_sales** | 총 매출 |
+
+#### V_HOSPITAL_MONTHLY_SALES_byClaude
+병원별 월별 매출 집계
+
+| Column | Description |
+|--------|-------------|
+| hos_cd, hos_cso_cd | 병원 키 |
+| hos_name, hos_abbr, hosIndex | 병원 정보 |
+| sales_year, sales_month, sales_index | 기간 |
+| cso_count | 거래 CSO수 |
+| drug_count, drug_class_count | 품목수 |
+| **total_sales** | 총 매출 |
+
+#### V_DRUG_MONTHLY_SALES_byClaude
+품목별 월별 매출 집계
+
+| Column | Description |
+|--------|-------------|
+| drug_cd, drug_name, drug_class | 품목 정보 |
+| sales_year, sales_month, sales_index | 기간 |
+| hospital_count | 거래 병원수 |
+| cso_count | 거래 CSO수 |
+| total_qty | 총 수량 |
+| **total_sales** | 총 매출 |
+
+#### V_REGION_MONTHLY_SALES_byClaude
+지역별 월별 매출 집계
+
+| Column | Description |
+|--------|-------------|
+| hosIndex, hos_addr1 | 지역 정보 |
+| sales_year, sales_month, sales_index | 기간 |
+| hospital_count | 병원수 |
+| cso_count | CSO수 |
+| drug_count | 품목수 |
+| **total_sales** | 총 매출 |
+
+### 조합 집계 뷰
+
+#### V_CSO_HOSPITAL_MONTHLY_byClaude
+CSO-병원 조합별 월별 매출
+
+| Column | Description |
+|--------|-------------|
+| cso_cd, cso_dealer_nm | CSO 정보 |
+| hos_cd, hos_cso_cd, hos_name, hos_abbr | 병원 정보 |
+| sales_year, sales_month, sales_index | 기간 |
+| drug_count, drug_class_count | 품목수 |
+| **total_sales** | 총 매출 |
+
+#### V_CSO_DRUG_MONTHLY_byClaude
+CSO-품목 조합별 월별 매출
+
+| Column | Description |
+|--------|-------------|
+| cso_cd, cso_dealer_nm | CSO 정보 |
+| drug_cd, drug_name, drug_class | 품목 정보 |
+| sales_year, sales_month, sales_index | 기간 |
+| hospital_count | 병원수 |
+| total_qty | 수량 |
+| **total_sales** | 총 매출 |
+
+#### V_HOSPITAL_DRUG_MONTHLY_byClaude
+병원-품목 조합별 월별 매출
+
+| Column | Description |
+|--------|-------------|
+| hos_cd, hos_cso_cd, hos_name | 병원 정보 |
+| drug_cd, drug_name, drug_class | 품목 정보 |
+| sales_year, sales_month, sales_index | 기간 |
+| cso_count | CSO수 |
+| total_qty | 수량 |
+| **total_sales** | 총 매출 |
+
+### 블록 뷰
+
+#### V_CURRENT_BLOCKS_byClaude
+현재 담당자 (end_index가 MAX인 레코드)
+
+| Column | Description |
+|--------|-------------|
+| hos_cd, hos_cso_cd, drug_cd, seq | 블록 키 |
+| cso_cd, cso_dealer_nm, cso_email | 담당 CSO 정보 |
+| hos_name, hos_abbr, hosIndex | 병원 정보 |
+| drug_name, drug_class | 품목 정보 |
+| disease_type | 진료과 |
+| isFirst | 최초담당여부 |
+| start_year, start_month, start_index | 담당 시작 |
+| end_year, end_month, end_index | 담당 종료 |
+
+#### V_BLOCK_HISTORY_byClaude
+블록 변경 이력 전체
+
+| Column | Description |
+|--------|-------------|
+| (V_CURRENT_BLOCKS_byClaude와 동일) | |
+| block_isvalid | 유효여부 |
+| update_at | 수정일시 |
+
+### 검색 뷰
+
+#### V_SEARCH_INDEX_byClaude
+통합 검색용 인덱스
+
+| Column | Description |
+|--------|-------------|
+| entity_type | 'CSO', 'HOSPITAL', 'DRUG' |
+| entity_cd | 엔티티 코드 (병원은 hos_cd\|hos_cso_cd) |
+| search_name | 검색용 이름 |
+| search_abbr | 병원 약어 (병원만) |
+| region | 지역 (병원만, hosIndex) |
+
+---
+
+## 뷰 활용 예시
+
+### CSO 최근 3개월 매출 조회
+```sql
+DECLARE @endIndex INT = (YEAR(GETDATE()) - 2000) * 12 + MONTH(GETDATE()) - 1
+DECLARE @startIndex INT = @endIndex - 2
+
+SELECT cso_dealer_nm, sales_year, sales_month, total_sales
+FROM V_CSO_MONTHLY_SALES_byClaude
+WHERE cso_cd = @cso_cd
+  AND sales_index BETWEEN @startIndex AND @endIndex
+ORDER BY sales_index
+```
+
+### CSO의 TOP5 병원 조회
+```sql
+SELECT TOP 5
+    hos_name, hos_abbr, hosIndex,
+    SUM(total_sales) AS total_sales,
+    SUM(drug_count) AS drug_count
+FROM V_CSO_HOSPITAL_MONTHLY_byClaude
+WHERE cso_cd = @cso_cd
+  AND sales_index BETWEEN @startIndex AND @endIndex
+GROUP BY hos_cd, hos_cso_cd, hos_name, hos_abbr, hosIndex
+ORDER BY total_sales DESC
+```
+
+### 지역별 매출 조회
+```sql
+SELECT hosIndex, hos_addr1,
+    SUM(total_sales) AS total_sales,
+    SUM(hospital_count) AS hospital_count
+FROM V_REGION_MONTHLY_SALES_byClaude
+WHERE hosIndex LIKE '인천%'
+  AND sales_index BETWEEN @startIndex AND @endIndex
+GROUP BY hosIndex, hos_addr1
+ORDER BY total_sales DESC
+```
+
+### 병원+품목 블록 정보 조회
+```sql
+SELECT cso_dealer_nm, disease_type, isFirst, start_year, start_month
+FROM V_CURRENT_BLOCKS_byClaude
+WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
+  AND drug_cd = @drug_cd
+```
+
+### 통합 검색 (CSO/병원/품목)
+```sql
+-- 3글자 이상 입력 시
+SELECT entity_type, entity_cd, search_name, search_abbr, region
+FROM V_SEARCH_INDEX_byClaude
+WHERE search_name LIKE '%검색어%'
+   OR search_abbr LIKE '%검색어%'
+```
+
+---
+
+## 매출조회 챗봇 규칙
+
+### 입력 규칙
+- **최소 입력 길이**: 2글자 이상
+- 2글자 미만 입력 시: "2글자 이상 입력해주세요" 안내
+
+### 자연어 파싱 대상
+| 엔티티 | 검색 필드 | 검색 방식 |
+|--------|----------|----------|
+| CSO/딜러 | `cso_dealer_nm` | LIKE '%입력값%' |
+| 병원 | `hos_name`, `hos_abbr` | LIKE '%입력값%' |
+| 품목 | `drug_name` | LIKE '%입력값%' |
+| 지역 | `hosIndex` | LIKE '입력값%' |
+
+### 조회 레벨
+- Level 0: 지역 단위 (지역명만)
+- Level 1: 단일 엔티티 (CSO/병원/품목)
+- Level 2: 조합 (CSO+병원, 병원+품목 등)
+- Level 3: 완전 상세 (CSO+병원+품목)
+
+### 블록 정보 표시 규칙
+> 병원명 + 품목명 동시 입력 시에만 블록(담당자) 정보 표시
+
+### 기간 설정
+- 기본값: 최근 3개월
+- 옵션: 3개월, 6개월, 1년
+
+### 매출 계산 공식
+```sql
+매출 = SUM(drug_cnt * drug_price * pay_rate)
+```
+
+### 년월인덱스 계산
+```
+년월인덱스 = (년도 - 2000) * 12 + 월 - 1
+예: 2025년 2월 = (2025-2000)*12 + 2-1 = 301
+```
+
+---
+
+## 공통 UI 규격
+
+### 로고 이미지 URL
+```
+https://storage.worksmobile.com/k1/drive/r/24101/300118260/300118260/@2001000000362831/3472530909344205321?fileId=QDIwMDEwMDAwMDAzNjI4MzF8MzQ3MjUzMDkwOTM0NDIwNTMyMXxGfDA&downloadType=O&resourceType=thumbnail&resourceFormat=origin&cache=1734582221372&conditionalAccessPolicy=false
+```
+
+### 로고 이미지 설정
+- **aspectRatio**: `5:3`
+- **aspectMode**: `fit` (PNG 이미지 대응)
+- **size**: `full`
+
+### 금액 표시 규격
+- 단위: **백만원**
+- 포맷: `X.X백만` (소수점 1자리)
+- 예시: `79.7백만`, `7.9백만`, `0.8백만`
+
+### 매출 추이 표시 (3개월)
+```
+월평균 매출    217.3백만
+(248.6 → 199.7 → 203.5)
+```
+- 첫 줄: 월평균 매출 (크게, bold)
+- 둘째 줄: 월별 매출 추이 (괄호, 화살표로 연결)
+
+### 조회 기간 표시
+- 위치: **제목 바로 아래** (가운데 정렬)
+- 포맷: `YYYY.M ~ YYYY.M (N개월)`
+- 예시: `2025.10 ~ 2025.12 (3개월)`
+- 스타일: `size: xs`, `color: #999999`
+
+### 줄간격
+- 기본 margin: `md` ~ `lg` (1.5배 간격 유지)
+- 구분선 전후: `margin: lg`
+
+### 색상 팔레트
+| 용도 | 색상코드 | 설명 |
+|------|---------|------|
+| 배경 | `#F0F8FF` | 연한 하늘색 |
+| 버튼 | `#1D3A8F` | 네이비 |
+| 버튼 텍스트 | `#FFFFFF` | 흰색 |
+| 본문 | `#000000` | 검정 |
+| 보조 텍스트 | `#999999` | 연한 회색 |
+| 구분선 | `#E5E5E5` | 매우 연한 회색 |
+
+### 버블 스타일
+- 상단: 로고 (AJUBIO, aspectMode: fit)
+- 제목: 검정색, bold, 가운데 정렬
+- 제목 아래: 조회 기간 (회색, 작은 글씨)
+- 본문: 줄간격 1.5배, 간결한 레이아웃
+- 하단: 네이비 버튼 (#1D3A8F)
+
+### 캐러셀 구성 (지역 조회)
+1. **요약 버블**: 지역 전체 월평균 + 추이 + 거래 병원/품목 수
+2. **TOP3 병원 버블**: 각 병원별 월평균 + 추이 + 품목별 매출 (TOP3 + 기타)
+3. **요약+기간변경 버블**: 주요 품목별 매출 + 6개월/1년 버튼
+
+### 버튼 스타일
+```json
+{
+  "style": "primary",
+  "color": "#1D3A8F",
+  "height": "sm"
+}
+```
