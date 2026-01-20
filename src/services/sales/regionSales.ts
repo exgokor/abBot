@@ -84,7 +84,10 @@ export async function checkRegionExists(keyword: string): Promise<boolean> {
 }
 
 /**
- * 지역 매출 데이터 조회
+ * 지역 매출 데이터 조회 (최적화 버전)
+ * - N+1 쿼리 제거: 병원별 데이터를 단일 쿼리로 조회
+ * - 병렬 쿼리 실행: Promise.all 사용
+ * - 정확한 병원/품목 수: COUNT DISTINCT 사용
  */
 export async function getRegionSales(keyword: string): Promise<RegionSalesResult | null> {
   const pool = await getConnection();
@@ -117,124 +120,176 @@ export async function getRegionSales(keyword: string): Promise<RegionSalesResult
   const endMonth = (endIndex % 12) + 1;
   const periodText = `${startYear}.${startMonth} ~ ${endYear}.${endMonth}`;
 
-  // 1. 지역 월별 매출
-  const monthlyResult = await pool.request()
-    .input('keyword', sql.NVarChar, `${keyword}%`)
-    .input('startIndex', sql.Int, startIndex)
-    .input('endIndex', sql.Int, endIndex)
-    .query(`
-      SELECT
-        sales_year, sales_month, sales_index,
-        SUM(total_sales) AS total_sales
-      FROM V_REGION_MONTHLY_SALES_byClaude
-      WHERE hosIndex LIKE @keyword
-        AND sales_index BETWEEN @startIndex AND @endIndex
-      GROUP BY sales_year, sales_month, sales_index
-      ORDER BY sales_index
-    `);
-
-  // 2. 지역 요약
-  const summaryResult = await pool.request()
-    .input('keyword', sql.NVarChar, `${keyword}%`)
-    .input('startIndex', sql.Int, startIndex)
-    .input('endIndex', sql.Int, endIndex)
-    .query(`
-      SELECT
-        LEFT(hosIndex, CHARINDEX(' ', hosIndex + ' ') - 1) AS hosIndex,
-        SUM(total_sales) AS total_sales,
-        SUM(hospital_count) AS hospital_count,
-        SUM(drug_count) AS drug_count
-      FROM V_REGION_MONTHLY_SALES_byClaude
-      WHERE hosIndex LIKE @keyword
-        AND sales_index BETWEEN @startIndex AND @endIndex
-      GROUP BY LEFT(hosIndex, CHARINDEX(' ', hosIndex + ' ') - 1)
-    `);
-
-  // 3. TOP 5 병원
-  const topHospitalsResult = await pool.request()
-    .input('keyword', sql.NVarChar, `${keyword}%`)
-    .input('startIndex', sql.Int, startIndex)
-    .input('endIndex', sql.Int, endIndex)
-    .query(`
-      SELECT TOP 5
-        hos_cd, hos_cso_cd, hos_name, hos_abbr,
-        SUM(total_sales) AS total_sales,
-        SUM(drug_count) AS drug_count
-      FROM V_HOSPITAL_MONTHLY_SALES_byClaude
-      WHERE hosIndex LIKE @keyword
-        AND sales_index BETWEEN @startIndex AND @endIndex
-      GROUP BY hos_cd, hos_cso_cd, hos_name, hos_abbr
-      ORDER BY SUM(total_sales) DESC
-    `);
-
-  // 4. 지역 TOP 품목
-  const topDrugsResult = await pool.request()
-    .input('keyword', sql.NVarChar, `${keyword}%`)
-    .input('startIndex', sql.Int, startIndex)
-    .input('endIndex', sql.Int, endIndex)
-    .query(`
-      SELECT TOP 5
-        drug_cd, drug_name,
-        SUM(total_sales) AS total_sales
-      FROM V_DRUG_MONTHLY_SALES_byClaude d
-      WHERE EXISTS (
-        SELECT 1 FROM V_HOSPITAL_MONTHLY_SALES_byClaude h
-        WHERE h.hosIndex LIKE @keyword
-          AND h.sales_index BETWEEN @startIndex AND @endIndex
-      )
-        AND d.sales_index BETWEEN @startIndex AND @endIndex
-      GROUP BY drug_cd, drug_name
-      ORDER BY SUM(total_sales) DESC
-    `);
-
-  // 5. 각 병원별 월별 매출 + 품목별 매출
-  const hospitals: TopHospitalData[] = [];
-  for (const h of topHospitalsResult.recordset) {
-    const hospitalMonthlyResult = await pool.request()
-      .input('hos_cd', sql.NVarChar, h.hos_cd)
-      .input('hos_cso_cd', sql.NVarChar, h.hos_cso_cd)
+  // === 병렬 쿼리 실행 (1차) ===
+  const [monthlyResult, summaryCountResult, topHospitalsResult, topDrugsResult] = await Promise.all([
+    // 1. 지역 월별 매출
+    pool.request()
+      .input('keyword', sql.NVarChar, `${keyword}%`)
       .input('startIndex', sql.Int, startIndex)
       .input('endIndex', sql.Int, endIndex)
       .query(`
-        SELECT sales_year, sales_month, sales_index, SUM(total_sales) AS total_sales
-        FROM V_HOSPITAL_MONTHLY_SALES_byClaude
-        WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
+        SELECT
+          sales_year, sales_month, sales_index,
+          SUM(total_sales) AS total_sales
+        FROM V_REGION_MONTHLY_SALES_byClaude
+        WHERE hosIndex LIKE @keyword
           AND sales_index BETWEEN @startIndex AND @endIndex
         GROUP BY sales_year, sales_month, sales_index
         ORDER BY sales_index
-      `);
+      `),
 
-    const drugSalesResult = await pool.request()
-      .input('hos_cd', sql.NVarChar, h.hos_cd)
-      .input('hos_cso_cd', sql.NVarChar, h.hos_cso_cd)
+    // 2. 지역 요약 (정확한 COUNT DISTINCT - 새 뷰 사용)
+    pool.request()
+      .input('keyword', sql.NVarChar, `${keyword}%`)
       .input('startIndex', sql.Int, startIndex)
       .input('endIndex', sql.Int, endIndex)
       .query(`
-        SELECT drug_cd, drug_name, SUM(total_sales) AS total_sales
+        SELECT
+          COUNT(DISTINCT hos_cd + hos_cso_cd) AS hospital_count,
+          COUNT(DISTINCT drug_cd) AS drug_count,
+          SUM(sales_amount) AS total_sales
+        FROM V_REGION_SUMMARY_byClaude
+        WHERE hosIndex LIKE @keyword
+          AND sales_index BETWEEN @startIndex AND @endIndex
+      `),
+
+    // 3. TOP 5 병원
+    pool.request()
+      .input('keyword', sql.NVarChar, `${keyword}%`)
+      .input('startIndex', sql.Int, startIndex)
+      .input('endIndex', sql.Int, endIndex)
+      .query(`
+        SELECT TOP 5
+          hos_cd, hos_cso_cd, hos_name, hos_abbr,
+          SUM(total_sales) AS total_sales,
+          COUNT(DISTINCT CASE WHEN drug_count > 0 THEN sales_index END) AS month_count
+        FROM V_HOSPITAL_MONTHLY_SALES_byClaude
+        WHERE hosIndex LIKE @keyword
+          AND sales_index BETWEEN @startIndex AND @endIndex
+        GROUP BY hos_cd, hos_cso_cd, hos_name, hos_abbr
+        ORDER BY SUM(total_sales) DESC
+      `),
+
+    // 4. 지역 TOP 품목 (수정: 지역 필터링 적용)
+    pool.request()
+      .input('keyword', sql.NVarChar, `${keyword}%`)
+      .input('startIndex', sql.Int, startIndex)
+      .input('endIndex', sql.Int, endIndex)
+      .query(`
+        SELECT TOP 5
+          drug_cd, drug_name,
+          SUM(total_sales) AS total_sales
         FROM V_HOSPITAL_DRUG_MONTHLY_byClaude
-        WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
+        WHERE hosIndex LIKE @keyword
           AND sales_index BETWEEN @startIndex AND @endIndex
         GROUP BY drug_cd, drug_name
         ORDER BY SUM(total_sales) DESC
-      `);
+      `)
+  ]);
 
-    hospitals.push({
-      ...h,
-      monthlySales: hospitalMonthlyResult.recordset,
-      drugSales: drugSalesResult.recordset
+  // TOP 5 병원 목록 추출
+  const topHospitalsList = topHospitalsResult.recordset;
+  if (topHospitalsList.length === 0) {
+    // 병원이 없으면 빈 결과 반환
+    const summaryCount = summaryCountResult.recordset[0] || { hospital_count: 0, drug_count: 0, total_sales: 0 };
+    return {
+      summary: {
+        hosIndex: keyword,
+        total_sales: summaryCount.total_sales || 0,
+        hospital_count: summaryCount.hospital_count || 0,
+        drug_count: summaryCount.drug_count || 0,
+        monthlySales: monthlyResult.recordset
+      },
+      topHospitals: [],
+      topDrugs: topDrugsResult.recordset,
+      periodMonths,
+      periodText
+    };
+  }
+
+  // === 병렬 쿼리 실행 (2차) - N+1 제거: 모든 병원 데이터를 한번에 조회 ===
+  const hospitalKeys = topHospitalsList.map(h => `'${h.hos_cd}|${h.hos_cso_cd}'`).join(',');
+
+  const [allHospitalMonthlyResult, allHospitalDrugResult] = await Promise.all([
+    // 5. 모든 TOP 병원의 월별 매출 (한번에 조회)
+    pool.request()
+      .input('startIndex', sql.Int, startIndex)
+      .input('endIndex', sql.Int, endIndex)
+      .query(`
+        SELECT hos_cd, hos_cso_cd, sales_year, sales_month, sales_index, SUM(total_sales) AS total_sales
+        FROM V_HOSPITAL_MONTHLY_SALES_byClaude
+        WHERE hos_cd + '|' + hos_cso_cd IN (${hospitalKeys})
+          AND sales_index BETWEEN @startIndex AND @endIndex
+        GROUP BY hos_cd, hos_cso_cd, sales_year, sales_month, sales_index
+        ORDER BY hos_cd, hos_cso_cd, sales_index
+      `),
+
+    // 6. 모든 TOP 병원의 품목별 매출 (한번에 조회)
+    pool.request()
+      .input('startIndex', sql.Int, startIndex)
+      .input('endIndex', sql.Int, endIndex)
+      .query(`
+        SELECT hos_cd, hos_cso_cd, drug_cd, drug_name, SUM(total_sales) AS total_sales
+        FROM V_HOSPITAL_DRUG_MONTHLY_byClaude
+        WHERE hos_cd + '|' + hos_cso_cd IN (${hospitalKeys})
+          AND sales_index BETWEEN @startIndex AND @endIndex
+        GROUP BY hos_cd, hos_cso_cd, drug_cd, drug_name
+        ORDER BY hos_cd, hos_cso_cd, SUM(total_sales) DESC
+      `)
+  ]);
+
+  // 결과를 병원별로 그룹핑
+  const hospitalMonthlyMap = new Map<string, MonthlySalesData[]>();
+  const hospitalDrugMap = new Map<string, DrugSalesData[]>();
+
+  for (const row of allHospitalMonthlyResult.recordset) {
+    const key = `${row.hos_cd}|${row.hos_cso_cd}`;
+    if (!hospitalMonthlyMap.has(key)) {
+      hospitalMonthlyMap.set(key, []);
+    }
+    hospitalMonthlyMap.get(key)!.push({
+      sales_year: row.sales_year,
+      sales_month: row.sales_month,
+      sales_index: row.sales_index,
+      total_sales: row.total_sales
     });
   }
 
-  const summaryData = summaryResult.recordset[0] || {
-    hosIndex: keyword,
-    total_sales: 0,
-    hospital_count: 0,
-    drug_count: 0
-  };
+  for (const row of allHospitalDrugResult.recordset) {
+    const key = `${row.hos_cd}|${row.hos_cso_cd}`;
+    if (!hospitalDrugMap.has(key)) {
+      hospitalDrugMap.set(key, []);
+    }
+    hospitalDrugMap.get(key)!.push({
+      drug_cd: row.drug_cd,
+      drug_name: row.drug_name,
+      total_sales: row.total_sales
+    });
+  }
+
+  // 병원 데이터 조립
+  const hospitals: TopHospitalData[] = topHospitalsList.map(h => {
+    const key = `${h.hos_cd}|${h.hos_cso_cd}`;
+    return {
+      hos_cd: h.hos_cd,
+      hos_cso_cd: h.hos_cso_cd,
+      hos_name: h.hos_name,
+      hos_abbr: h.hos_abbr,
+      total_sales: h.total_sales,
+      drug_count: hospitalDrugMap.get(key)?.length || 0,
+      monthlySales: hospitalMonthlyMap.get(key) || [],
+      drugSales: hospitalDrugMap.get(key) || []
+    };
+  });
+
+  const summaryCount = summaryCountResult.recordset[0] || { hospital_count: 0, drug_count: 0, total_sales: 0 };
 
   return {
     summary: {
-      ...summaryData,
+      hosIndex: keyword,
+      total_sales: summaryCount.total_sales || 0,
+      hospital_count: summaryCount.hospital_count || 0,
+      drug_count: summaryCount.drug_count || 0,
       monthlySales: monthlyResult.recordset
     },
     topHospitals: hospitals,

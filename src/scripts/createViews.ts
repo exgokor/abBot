@@ -391,6 +391,25 @@ UNION ALL
 SELECT 'DRUG' AS entity_type, drug_cd AS entity_cd, drug_name AS search_name, NULL AS search_abbr, NULL AS region
 FROM DRUG_TBL WHERE drug_isvalid = 'Y'
 `
+  },
+
+  // 12. V_REGION_SUMMARY_byClaude: 지역별 요약용 (병원/품목 COUNT DISTINCT용)
+  {
+    name: 'V_REGION_SUMMARY_byClaude',
+    sql: `
+CREATE VIEW V_REGION_SUMMARY_byClaude AS
+SELECT
+    h.hosIndex,
+    s.sales_index,
+    s.hos_cd,
+    s.hos_cso_cd,
+    s.drug_cd,
+    SUM(s.drug_cnt * s.drug_price * s.pay_rate) AS sales_amount
+FROM SALES_TBL s
+JOIN HOSPITAL_TBL h ON s.hos_cd = h.hos_cd AND s.hos_cso_cd = h.hos_cso_cd
+WHERE s.drug_cnt > 0
+GROUP BY h.hosIndex, s.sales_index, s.hos_cd, s.hos_cso_cd, s.drug_cd
+`
   }
 ];
 

@@ -12,7 +12,7 @@ export const sqlConfig = {
   },
   pool: {
     max: 10,
-    min: 0,
-    idleTimeoutMillis: 30000,
+    min: 2,  // 최소 2개 연결 유지 (콜드스타트 방지)
+    idleTimeoutMillis: 60000,  // 1분 유휴 타임아웃
   },
 };
