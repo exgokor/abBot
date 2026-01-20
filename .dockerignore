@@ -8,5 +8,4 @@ npm-debug.log
 .vscode
 .idea
 src
-tsconfig.json
 .claude
