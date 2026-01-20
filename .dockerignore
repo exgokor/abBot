@@ -7,5 +7,4 @@ npm-debug.log
 *.md
 .vscode
 .idea
-src
 .claude
