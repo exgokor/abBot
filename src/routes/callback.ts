@@ -7,7 +7,6 @@ import { config } from '../config';
 const router = Router();
 
 const TOKEN_URL = 'https://auth.worksmobile.com/oauth2/v2.0/token';
-const REDIRECT_URI = 'https://ajubiochatbot-276285858770.asia-northeast3.run.app/callback';
 
 /**
  * OAuth Callback 엔드포인트
@@ -40,7 +39,7 @@ router.get('/callback', async (req: Request, res: Response) => {
         client_id: config.naverWorks.clientId,
         client_secret: config.naverWorks.clientSecret,
         code: String(code),
-        redirect_uri: REDIRECT_URI,
+        redirect_uri: config.naverWorks.redirectUri,
       }),
       {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

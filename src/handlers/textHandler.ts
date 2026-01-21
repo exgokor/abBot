@@ -1,7 +1,10 @@
 import { TextMessageRequest } from './index';
 import { logger } from '../utils/logger';
 import { sendTextMessage, sendFlexMessage, createTextBubble, createButtonBubble } from '../services/naverworks/message';
-import { checkRegionExists, getRegionSales, createRegionCarousel } from '../services/sales/regionSales';
+import { getRegionSales, createRegionCarousel } from '../services/sales/regionSales';
+import { searchAll, getTotalCount, isSingleResult, createSearchResultCarousel } from '../services/sales/searchService';
+import { getHospitalSales, createHospitalCarousel } from '../services/sales/hospitalSales';
+import { getDrugSales, createDrugCarousel } from '../services/sales/drugSales';
 
 /**
  * 텍스트 메시지 처리
@@ -53,21 +56,41 @@ async function handleCommand(userId: string, text: string): Promise<void> {
 }
 
 /**
- * 일반 텍스트 처리
+ * 일반 텍스트 처리 - 통합 검색
  */
 async function handleGeneralText(userId: string, text: string): Promise<void> {
   try {
-    // DB에서 지역 데이터 존재 확인
-    if (await checkRegionExists(text)) {
-      await handleRegionSearch(userId, text);
+    // 통합 검색 실행 (지역/병원/약품)
+    const searchResult = await searchAll(text);
+    const totalCount = getTotalCount(searchResult);
+
+    // 결과 없음
+    if (totalCount === 0) {
+      await sendTextMessage(userId, `[${text}] 검색 결과가 없습니다.`);
       return;
     }
-  } catch (error) {
-    logger.error(`checkRegionExists error for "${text}":`, error);
-  }
 
-  // 지역으로 조회되지 않으면 단순 텍스트 응답
-  await sendTextMessage(userId, `[${text}] 해당 지역명으로 조회되지 않습니다.`);
+    // 단일 결과 → 바로 상세 조회
+    if (isSingleResult(searchResult)) {
+      if (searchResult.regions.length === 1) {
+        await handleRegionSearch(userId, searchResult.regions[0].hosIndex);
+      } else if (searchResult.hospitals.length === 1) {
+        const h = searchResult.hospitals[0];
+        await handleHospitalSearch(userId, h.hos_cd, h.hos_cso_cd);
+      } else if (searchResult.drugs.length === 1) {
+        await handleDrugSearch(userId, searchResult.drugs[0].drug_cd);
+      }
+      return;
+    }
+
+    // 복수 결과 → 선택 캐러셀
+    const carousel = createSearchResultCarousel(text, searchResult);
+    await sendFlexMessage(userId, carousel);
+
+  } catch (error) {
+    logger.error(`Search error for "${text}":`, error);
+    await sendTextMessage(userId, '검색 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+  }
 }
 
 /**
@@ -135,4 +158,52 @@ async function handleMyInfo(userId: string): Promise<void> {
   );
 
   await sendFlexMessage(userId, flexMessage);
+}
+
+/**
+ * 병원 매출 조회
+ */
+export async function handleHospitalSearch(userId: string, hos_cd: string, hos_cso_cd: string): Promise<void> {
+  logger.info(`Hospital search: ${hos_cd}|${hos_cso_cd} for user ${userId}`);
+
+  try {
+    const result = await getHospitalSales(hos_cd, hos_cso_cd);
+
+    if (!result) {
+      await sendTextMessage(userId, '해당 병원의 매출 데이터가 없습니다.');
+      return;
+    }
+
+    const carousel = createHospitalCarousel(result);
+    await sendFlexMessage(userId, carousel);
+
+    logger.info(`Hospital carousel sent for ${hos_cd}|${hos_cso_cd}`);
+  } catch (error) {
+    logger.error(`Hospital search error:`, error);
+    await sendTextMessage(userId, '병원 조회 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+  }
+}
+
+/**
+ * 약품 매출 조회
+ */
+export async function handleDrugSearch(userId: string, drug_cd: string): Promise<void> {
+  logger.info(`Drug search: ${drug_cd} for user ${userId}`);
+
+  try {
+    const result = await getDrugSales(drug_cd);
+
+    if (!result) {
+      await sendTextMessage(userId, '해당 약품의 매출 데이터가 없습니다.');
+      return;
+    }
+
+    const carousel = createDrugCarousel(result);
+    await sendFlexMessage(userId, carousel);
+
+    logger.info(`Drug carousel sent for ${drug_cd}`);
+  } catch (error) {
+    logger.error(`Drug search error:`, error);
+    await sendTextMessage(userId, '약품 조회 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+  }
 }

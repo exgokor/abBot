@@ -1,6 +1,9 @@
 import { PostbackRequest } from './index';
 import { logger } from '../utils/logger';
 import { sendTextMessage, sendFlexMessage, createTextBubble } from '../services/naverworks/message';
+import { getRegionSales, createRegionCarousel } from '../services/sales/regionSales';
+import { getHospitalSales, createHospitalCarousel } from '../services/sales/hospitalSales';
+import { getDrugSales, createDrugCarousel } from '../services/sales/drugSales';
 
 /**
  * Postback 데이터 타입 (버튼 클릭 시 전달되는 데이터)
@@ -83,8 +86,65 @@ async function handleAction(userId: string, data: PostbackData): Promise<void> {
       await sendTextMessage(userId, '취소되었습니다.');
       break;
 
+    case 'search_select':
+      await handleSearchSelect(userId, data);
+      break;
+
     default:
       await sendTextMessage(userId, `알 수 없는 액션: ${action}`);
+  }
+}
+
+/**
+ * 검색 결과 선택 처리
+ */
+async function handleSearchSelect(userId: string, data: PostbackData): Promise<void> {
+  const { type, value } = data;
+
+  logger.info(`Search select: type=${type}, value=${value}`);
+
+  try {
+    switch (type) {
+      case 'region':
+        // 지역 상세 조회
+        const regionResult = await getRegionSales(value);
+        if (regionResult) {
+          const regionCarousel = createRegionCarousel(value, regionResult);
+          await sendFlexMessage(userId, regionCarousel);
+        } else {
+          await sendTextMessage(userId, `'${value}' 지역의 매출 데이터가 없습니다.`);
+        }
+        break;
+
+      case 'hospital':
+        // 병원 상세 조회 (hos_cd|hos_cso_cd 파싱)
+        const [hos_cd, hos_cso_cd] = value.split('|');
+        const hospitalResult = await getHospitalSales(hos_cd, hos_cso_cd);
+        if (hospitalResult) {
+          const hospitalCarousel = createHospitalCarousel(hospitalResult);
+          await sendFlexMessage(userId, hospitalCarousel);
+        } else {
+          await sendTextMessage(userId, '해당 병원의 매출 데이터가 없습니다.');
+        }
+        break;
+
+      case 'drug':
+        // 약품 상세 조회
+        const drugResult = await getDrugSales(value);
+        if (drugResult) {
+          const drugCarousel = createDrugCarousel(drugResult);
+          await sendFlexMessage(userId, drugCarousel);
+        } else {
+          await sendTextMessage(userId, '해당 약품의 매출 데이터가 없습니다.');
+        }
+        break;
+
+      default:
+        await sendTextMessage(userId, `알 수 없는 검색 타입: ${type}`);
+    }
+  } catch (error) {
+    logger.error(`Search select error:`, error);
+    await sendTextMessage(userId, '조회 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
   }
 }
 

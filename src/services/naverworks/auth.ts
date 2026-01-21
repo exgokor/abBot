@@ -4,6 +4,9 @@ import { logger } from '../../utils/logger';
 import { config } from '../../config';
 import { getEncryptedValue, setEncryptedValue } from '../database/envDB';
 
+// 토큰 재발행 알림을 받을 관리자 ID
+const ADMIN_NOTIFY_USER_ID = '73524122-e756-4c53-179e-0378b4ad90b5';
+
 const TOKEN_URL = 'https://auth.worksmobile.com/oauth2/v2.0/token';
 
 interface TokenResponse {
@@ -186,5 +189,41 @@ export async function reissueRefreshToken(): Promise<string> {
   await setEncryptedValue('REFRESH_TOKEN', refresh_token);
 
   logger.info('Refresh token reissued and saved to DB');
+
+  // 관리자에게 토큰 재발행 알림 전송
+  try {
+    await sendTokenReissueNotification(access_token);
+  } catch (notifyError) {
+    logger.error('Failed to send token reissue notification:', notifyError);
+  }
+
   return access_token;
+}
+
+/**
+ * 토큰 재발행 알림 메시지 전송
+ */
+async function sendTokenReissueNotification(accessToken: string): Promise<void> {
+  const API_BASE_URL = 'https://www.worksapis.com/v1.0';
+  const now = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+
+  const body = {
+    content: {
+      type: 'text',
+      text: `[토큰 재발행 알림]\nPuppeteer를 통해 토큰이 재발행되었습니다.\n시간: ${now}`,
+    },
+  };
+
+  await axios.post(
+    `${API_BASE_URL}/bots/${config.naverWorks.botId}/users/${ADMIN_NOTIFY_USER_ID}/messages`,
+    body,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+
+  logger.info(`Token reissue notification sent to admin: ${ADMIN_NOTIFY_USER_ID}`);
 }
