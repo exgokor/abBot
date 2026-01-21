@@ -47,7 +47,7 @@ SELECT
     d.drug_totRate,
     d.drug_dpRate,
     -- 계산 필드
-    (s.drug_cnt * s.drug_price * s.pay_rate) AS sales_amount
+    (s.drug_cnt * s.drug_price) AS sales_amount
 FROM SALES_TBL s
 LEFT JOIN CSO_TBL c ON s.cso_cd_then = c.cso_cd
 LEFT JOIN HOSPITAL_TBL h ON s.hos_cd = h.hos_cd AND s.hos_cso_cd = h.hos_cso_cd
@@ -72,7 +72,7 @@ SELECT
     COUNT(DISTINCT s.hos_cd + s.hos_cso_cd) AS hospital_count,
     COUNT(DISTINCT CASE WHEN s.drug_cnt > 0 THEN s.drug_cd END) AS drug_count,
     COUNT(DISTINCT CASE WHEN s.drug_cnt > 0 THEN d.drug_class END) AS drug_class_count,
-    SUM(s.drug_cnt * s.drug_price * s.pay_rate) AS total_sales
+    SUM(s.drug_cnt * s.drug_price) AS total_sales
 FROM SALES_TBL s
 LEFT JOIN CSO_TBL c ON s.cso_cd_then = c.cso_cd
 LEFT JOIN DRUG_TBL d ON s.drug_cd = d.drug_cd
@@ -108,7 +108,7 @@ SELECT
     COUNT(DISTINCT s.cso_cd_then) AS cso_count,
     COUNT(DISTINCT CASE WHEN s.drug_cnt > 0 THEN s.drug_cd END) AS drug_count,
     COUNT(DISTINCT CASE WHEN s.drug_cnt > 0 THEN d.drug_class END) AS drug_class_count,
-    SUM(s.drug_cnt * s.drug_price * s.pay_rate) AS total_sales
+    SUM(s.drug_cnt * s.drug_price) AS total_sales
 FROM SALES_TBL s
 LEFT JOIN HOSPITAL_TBL h ON s.hos_cd = h.hos_cd AND s.hos_cso_cd = h.hos_cso_cd
 LEFT JOIN DRUG_TBL d ON s.drug_cd = d.drug_cd
@@ -145,7 +145,7 @@ SELECT
     COUNT(DISTINCT s.hos_cd + s.hos_cso_cd) AS hospital_count,
     COUNT(DISTINCT s.cso_cd_then) AS cso_count,
     SUM(s.drug_cnt) AS total_qty,
-    SUM(s.drug_cnt * s.drug_price * s.pay_rate) AS total_sales
+    SUM(s.drug_cnt * s.drug_price) AS total_sales
 FROM SALES_TBL s
 LEFT JOIN DRUG_TBL d ON s.drug_cd = d.drug_cd
     AND s.sales_index >= d.start_index
@@ -175,7 +175,7 @@ SELECT
     COUNT(DISTINCT s.hos_cd + s.hos_cso_cd) AS hospital_count,
     COUNT(DISTINCT s.cso_cd_then) AS cso_count,
     COUNT(DISTINCT CASE WHEN s.drug_cnt > 0 THEN s.drug_cd END) AS drug_count,
-    SUM(s.drug_cnt * s.drug_price * s.pay_rate) AS total_sales
+    SUM(s.drug_cnt * s.drug_price) AS total_sales
 FROM SALES_TBL s
 LEFT JOIN HOSPITAL_TBL h ON s.hos_cd = h.hos_cd AND s.hos_cso_cd = h.hos_cso_cd
 GROUP BY
@@ -205,7 +205,7 @@ SELECT
     s.sales_index,
     COUNT(DISTINCT CASE WHEN s.drug_cnt > 0 THEN s.drug_cd END) AS drug_count,
     COUNT(DISTINCT CASE WHEN s.drug_cnt > 0 THEN d.drug_class END) AS drug_class_count,
-    SUM(s.drug_cnt * s.drug_price * s.pay_rate) AS total_sales
+    SUM(s.drug_cnt * s.drug_price) AS total_sales
 FROM SALES_TBL s
 LEFT JOIN CSO_TBL c ON s.cso_cd_then = c.cso_cd
 LEFT JOIN HOSPITAL_TBL h ON s.hos_cd = h.hos_cd AND s.hos_cso_cd = h.hos_cso_cd
@@ -243,7 +243,7 @@ SELECT
     s.sales_index,
     COUNT(DISTINCT s.hos_cd + s.hos_cso_cd) AS hospital_count,
     SUM(s.drug_cnt) AS total_qty,
-    SUM(s.drug_cnt * s.drug_price * s.pay_rate) AS total_sales
+    SUM(s.drug_cnt * s.drug_price) AS total_sales
 FROM SALES_TBL s
 LEFT JOIN CSO_TBL c ON s.cso_cd_then = c.cso_cd
 LEFT JOIN DRUG_TBL d ON s.drug_cd = d.drug_cd
@@ -281,7 +281,7 @@ SELECT
     s.sales_index,
     COUNT(DISTINCT s.cso_cd_then) AS cso_count,
     SUM(s.drug_cnt) AS total_qty,
-    SUM(s.drug_cnt * s.drug_price * s.pay_rate) AS total_sales
+    SUM(s.drug_cnt * s.drug_price) AS total_sales
 FROM SALES_TBL s
 LEFT JOIN HOSPITAL_TBL h ON s.hos_cd = h.hos_cd AND s.hos_cso_cd = h.hos_cso_cd
 LEFT JOIN DRUG_TBL d ON s.drug_cd = d.drug_cd
@@ -406,7 +406,7 @@ SELECT
     s.hos_cd,
     s.hos_cso_cd,
     s.drug_cd,
-    SUM(s.drug_cnt * s.drug_price * s.pay_rate) AS sales_amount
+    SUM(s.drug_cnt * s.drug_price) AS sales_amount
 FROM SALES_TBL s
 JOIN HOSPITAL_TBL h ON s.hos_cd = h.hos_cd AND s.hos_cso_cd = h.hos_cso_cd
 WHERE s.drug_cnt > 0

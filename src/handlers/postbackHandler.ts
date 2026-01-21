@@ -4,6 +4,7 @@ import { sendTextMessage, sendFlexMessage, createTextBubble } from '../services/
 import { getRegionSales, createRegionCarousel } from '../services/sales/regionSales';
 import { getHospitalSales, createHospitalCarousel } from '../services/sales/hospitalSales';
 import { getDrugSales, createDrugCarousel } from '../services/sales/drugSales';
+import { getCsoSales, createCsoCarousel } from '../services/sales/csoSales';
 
 /**
  * Postback 데이터 타입 (버튼 클릭 시 전달되는 데이터)
@@ -136,6 +137,17 @@ async function handleSearchSelect(userId: string, data: PostbackData): Promise<v
           await sendFlexMessage(userId, drugCarousel);
         } else {
           await sendTextMessage(userId, '해당 약품의 매출 데이터가 없습니다.');
+        }
+        break;
+
+      case 'cso':
+        // CSO 상세 조회
+        const csoResult = await getCsoSales(value);
+        if (csoResult) {
+          const csoCarousel = createCsoCarousel(csoResult);
+          await sendFlexMessage(userId, csoCarousel);
+        } else {
+          await sendTextMessage(userId, '해당 CSO의 매출 데이터가 없습니다.');
         }
         break;
 

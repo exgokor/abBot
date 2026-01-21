@@ -2,9 +2,10 @@ import { TextMessageRequest } from './index';
 import { logger } from '../utils/logger';
 import { sendTextMessage, sendFlexMessage, createTextBubble, createButtonBubble } from '../services/naverworks/message';
 import { getRegionSales, createRegionCarousel } from '../services/sales/regionSales';
-import { searchAll, getTotalCount, isSingleResult, createSearchResultCarousel } from '../services/sales/searchService';
+import { searchAll, getTotalCount, isSingleResult, createSearchResultCarousel, getCategoryTrend } from '../services/sales/searchService';
 import { getHospitalSales, createHospitalCarousel } from '../services/sales/hospitalSales';
 import { getDrugSales, createDrugCarousel } from '../services/sales/drugSales';
+import { getCsoSales, createCsoCarousel } from '../services/sales/csoSales';
 
 /**
  * 텍스트 메시지 처리
@@ -60,7 +61,7 @@ async function handleCommand(userId: string, text: string): Promise<void> {
  */
 async function handleGeneralText(userId: string, text: string): Promise<void> {
   try {
-    // 통합 검색 실행 (지역/병원/약품)
+    // 통합 검색 실행 (지역/병원/약품/CSO)
     const searchResult = await searchAll(text);
     const totalCount = getTotalCount(searchResult);
 
@@ -79,12 +80,47 @@ async function handleGeneralText(userId: string, text: string): Promise<void> {
         await handleHospitalSearch(userId, h.hos_cd, h.hos_cso_cd);
       } else if (searchResult.drugs.length === 1) {
         await handleDrugSearch(userId, searchResult.drugs[0].drug_cd);
+      } else if (searchResult.csos.length === 1) {
+        await handleCsoSearch(userId, searchResult.csos[0].cso_cd);
       }
       return;
     }
 
     // 복수 결과 → 선택 캐러셀
-    const carousel = createSearchResultCarousel(text, searchResult);
+    // 검색 결과가 있는 모든 카테고리에 대해 트렌드 데이터 조회 (매출 요약 버블용)
+    const trendData: {
+      region?: Awaited<ReturnType<typeof getCategoryTrend>>;
+      hospital?: Awaited<ReturnType<typeof getCategoryTrend>>;
+      drug?: Awaited<ReturnType<typeof getCategoryTrend>>;
+      cso?: Awaited<ReturnType<typeof getCategoryTrend>>;
+    } = {};
+
+    const trendPromises: Promise<void>[] = [];
+
+    if (searchResult.regionTotalCount > 0) {
+      trendPromises.push(
+        getCategoryTrend('region', text, searchResult).then(data => { trendData.region = data; })
+      );
+    }
+    if (searchResult.hospitalTotalCount > 0) {
+      trendPromises.push(
+        getCategoryTrend('hospital', text, searchResult).then(data => { trendData.hospital = data; })
+      );
+    }
+    if (searchResult.drugTotalCount > 0) {
+      trendPromises.push(
+        getCategoryTrend('drug', text, searchResult).then(data => { trendData.drug = data; })
+      );
+    }
+    if (searchResult.csoTotalCount > 0) {
+      trendPromises.push(
+        getCategoryTrend('cso', text, searchResult).then(data => { trendData.cso = data; })
+      );
+    }
+
+    await Promise.all(trendPromises);
+
+    const carousel = createSearchResultCarousel(text, searchResult, trendData);
     await sendFlexMessage(userId, carousel);
 
   } catch (error) {
@@ -205,5 +241,29 @@ export async function handleDrugSearch(userId: string, drug_cd: string): Promise
   } catch (error) {
     logger.error(`Drug search error:`, error);
     await sendTextMessage(userId, '약품 조회 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+  }
+}
+
+/**
+ * CSO 매출 조회
+ */
+export async function handleCsoSearch(userId: string, cso_cd: string): Promise<void> {
+  logger.info(`CSO search: ${cso_cd} for user ${userId}`);
+
+  try {
+    const result = await getCsoSales(cso_cd);
+
+    if (!result) {
+      await sendTextMessage(userId, '해당 CSO의 매출 데이터가 없습니다.');
+      return;
+    }
+
+    const carousel = createCsoCarousel(result);
+    await sendFlexMessage(userId, carousel);
+
+    logger.info(`CSO carousel sent for ${cso_cd}`);
+  } catch (error) {
+    logger.error(`CSO search error:`, error);
+    await sendTextMessage(userId, 'CSO 조회 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
   }
 }
