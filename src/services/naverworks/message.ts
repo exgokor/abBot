@@ -66,12 +66,12 @@ export async function sendTextMessage(userId: string, text: string): Promise<voi
   await sendMessage(userId, body);
 }
 
-export async function sendFlexMessage(userId: string, flexContent: any): Promise<void> {
+export async function sendFlexMessage(userId: string, flexContent: any, altText?: string): Promise<void> {
   // NaverWorks Bot API 형식: content.type = 'flex'
   const body = {
     content: {
       type: 'flex',
-      altText: 'Flexible Template',
+      altText: altText || 'Flexible Template',
       contents: flexContent.content || flexContent,
     },
   };

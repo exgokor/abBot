@@ -61,6 +61,9 @@ async function handleCommand(userId: string, text: string): Promise<void> {
  */
 async function handleGeneralText(userId: string, text: string): Promise<void> {
   try {
+    // 즉시 안내 메시지 전송
+    await sendTextMessage(userId, `[ ${text} ] 로 결과를 검색합니다.`);
+
     // 통합 검색 실행 (지역/병원/약품/CSO)
     const searchResult = await searchAll(text);
     const totalCount = getTotalCount(searchResult);
@@ -121,7 +124,7 @@ async function handleGeneralText(userId: string, text: string): Promise<void> {
     await Promise.all(trendPromises);
 
     const carousel = createSearchResultCarousel(text, searchResult, trendData);
-    await sendFlexMessage(userId, carousel);
+    await sendFlexMessage(userId, carousel, `[${text}] 분석 완료`);
 
   } catch (error) {
     logger.error(`Search error for "${text}":`, error);
@@ -144,7 +147,7 @@ async function handleRegionSearch(userId: string, keyword: string): Promise<void
     }
 
     const carousel = createRegionCarousel(keyword, result);
-    await sendFlexMessage(userId, carousel);
+    await sendFlexMessage(userId, carousel, `[${keyword}] 분석 완료`);
 
     logger.info(`Region carousel sent for ${keyword}`);
   } catch (error) {
@@ -180,7 +183,7 @@ async function sendMenuMessage(userId: string): Promise<void> {
     ]
   );
 
-  await sendFlexMessage(userId, flexMessage);
+  await sendFlexMessage(userId, flexMessage, '메뉴');
 }
 
 /**
@@ -193,7 +196,7 @@ async function handleMyInfo(userId: string): Promise<void> {
     `사용자 ID: ${userId}\n\n상세 정보는 준비 중입니다.`
   );
 
-  await sendFlexMessage(userId, flexMessage);
+  await sendFlexMessage(userId, flexMessage, '내 정보');
 }
 
 /**
@@ -211,7 +214,7 @@ export async function handleHospitalSearch(userId: string, hos_cd: string, hos_c
     }
 
     const carousel = createHospitalCarousel(result);
-    await sendFlexMessage(userId, carousel);
+    await sendFlexMessage(userId, carousel, `[${result.hospital.hos_abbr || result.hospital.hos_name}] 분석 완료`);
 
     logger.info(`Hospital carousel sent for ${hos_cd}|${hos_cso_cd}`);
   } catch (error) {
@@ -235,7 +238,7 @@ export async function handleDrugSearch(userId: string, drug_cd: string): Promise
     }
 
     const carousel = createDrugCarousel(result);
-    await sendFlexMessage(userId, carousel);
+    await sendFlexMessage(userId, carousel, `[${result.drug.drug_name}] 분석 완료`);
 
     logger.info(`Drug carousel sent for ${drug_cd}`);
   } catch (error) {
@@ -259,7 +262,7 @@ export async function handleCsoSearch(userId: string, cso_cd: string): Promise<v
     }
 
     const carousel = createCsoCarousel(result);
-    await sendFlexMessage(userId, carousel);
+    await sendFlexMessage(userId, carousel, `[${result.cso.cso_dealer_nm}] 분석 완료`);
 
     logger.info(`CSO carousel sent for ${cso_cd}`);
   } catch (error) {

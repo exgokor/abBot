@@ -18,7 +18,9 @@
       "Bash(npm run scheduled-job:*)",
       "Bash(ls:*)",
       "Bash(git commit:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(cd:*)",
+      "Read(//c/**)"
     ]
   }
 }

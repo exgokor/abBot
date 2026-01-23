@@ -4,6 +4,10 @@
 
 import { getConnection } from '../database/connection';
 import sql from 'mssql';
+import {
+  formatSalesMoney,
+  formatMonthlyTrend as formatTrend
+} from '../../utils/numberFormatter';
 
 // 색상 팔레트
 const COLORS = {
@@ -162,26 +166,9 @@ export async function getDrugSales(drug_cd: string): Promise<DrugSalesResult | n
   };
 }
 
-// 금액 포맷
-function formatMoney(amount: number): string {
-  const millions = amount / 1000000;
-  if (millions >= 10) {
-    return `${millions.toFixed(1)}백만`;
-  } else if (millions >= 1) {
-    return `${millions.toFixed(1)}백만`;
-  } else if (millions >= 0.1) {
-    return `${millions.toFixed(2)}백만`;
-  } else {
-    return `${(amount / 10000).toFixed(0)}만`;
-  }
-}
-
-// 월별 추이 문자열
+// MonthlySalesData 배열을 숫자 배열로 변환하여 포맷팅
 function formatMonthlyTrend(monthlySales: MonthlySalesData[]): string {
-  if (monthlySales.length === 0) return '';
-  return monthlySales
-    .map(m => (m.total_sales / 1000000).toFixed(1))
-    .join(' → ');
+  return formatTrend(monthlySales.map(m => m.total_sales));
 }
 
 /**
@@ -207,7 +194,7 @@ export function createDrugCarousel(result: DrugSalesResult): any {
       },
       {
         type: 'text',
-        text: formatMoney(hospital.total_sales),
+        text: formatSalesMoney(hospital.total_sales),
         size: 'xs',
         weight: 'bold',
         color: COLORS.text,
@@ -259,7 +246,7 @@ export function createDrugCarousel(result: DrugSalesResult): any {
               layout: 'horizontal',
               contents: [
                 { type: 'text', text: '월평균 매출', size: 'sm', color: COLORS.subtext },
-                { type: 'text', text: formatMoney(monthlyAvg), size: 'lg', weight: 'bold', color: COLORS.text, align: 'end' }
+                { type: 'text', text: formatSalesMoney(monthlyAvg), size: 'lg', weight: 'bold', color: COLORS.text, align: 'end' }
               ]
             },
             {
@@ -280,7 +267,7 @@ export function createDrugCarousel(result: DrugSalesResult): any {
               layout: 'horizontal',
               contents: [
                 { type: 'text', text: '총 매출', size: 'sm', color: COLORS.subtext },
-                { type: 'text', text: formatMoney(summary.total_sales), size: 'sm', weight: 'bold', color: COLORS.text, align: 'end' }
+                { type: 'text', text: formatSalesMoney(summary.total_sales), size: 'sm', weight: 'bold', color: COLORS.text, align: 'end' }
               ],
               margin: 'lg'
             },

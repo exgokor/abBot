@@ -5,6 +5,7 @@
 
 import { getConnection } from "../database/connection";
 import sql from "mssql";
+import { formatSalesMoney } from "../../utils/numberFormatter";
 
 // 색상 팔레트
 const COLORS = {
@@ -423,16 +424,6 @@ export async function getCategoryTrend(
   }
 }
 
-/**
- * 금액 포맷 (백만 단위)
- */
-function formatMoney(amount: number): string {
-  const millions = amount / 1000000;
-  if (millions >= 1) {
-    return `${millions.toFixed(1)}백만`;
-  }
-  return `${millions.toFixed(1)}백만`;
-}
 
 /**
  * 검색 결과 캐러셀 생성
@@ -672,7 +663,7 @@ function createSalesSummaryBubble(
   totalCount: number,
   trend: CategoryTrendData
 ): any {
-  const trendText = trend.months.map((m) => formatMoney(m.sales)).join(" → ");
+  const trendText = trend.months.map((m) => formatSalesMoney(m.sales)).join(" → ");
 
   // 품목별 매출 행 생성 (JSON 디자인 참고)
   const drugRows: any[] = trend.topDrugs.slice(0, 5).map((drug) => ({
@@ -717,7 +708,7 @@ function createSalesSummaryBubble(
         contents: [
           {
             type: "text",
-            text: formatMoney(drug.avgSales),
+            text: formatSalesMoney(drug.avgSales),
             size: "xs",
             align: "end",
             color: COLORS.subtext,
@@ -764,7 +755,7 @@ function createSalesSummaryBubble(
         },
         {
           type: "text",
-          text: formatMoney(trend.avgSales),
+          text: formatSalesMoney(trend.avgSales),
           weight: "bold",
           size: "sm",
           align: "end",
@@ -828,12 +819,12 @@ function createTrendSection(
   categoryName: string,
   trend: CategoryTrendData,
 ): any {
-  const trendText = trend.months.map((m) => formatMoney(m.sales)).join(" → ");
+  const trendText = trend.months.map((m) => formatSalesMoney(m.sales)).join(" → ");
 
   const contents: any[] = [
     {
       type: "text",
-      text: `${categoryName} 월평균: ${formatMoney(trend.avgSales)}`,
+      text: `${categoryName} 월평균: ${formatSalesMoney(trend.avgSales)}`,
       size: "xs",
       color: COLORS.subtext,
       margin: "sm",
@@ -850,7 +841,7 @@ function createTrendSection(
   if (trend.topDrugs.length > 0) {
     const topDrugsText = trend.topDrugs
       .slice(0, 3)
-      .map((d) => `${d.drug_name.slice(0, 8)}: ${formatMoney(d.avgSales)}`)
+      .map((d) => `${d.drug_name.slice(0, 8)}: ${formatSalesMoney(d.avgSales)}`)
       .join(", ");
 
     contents.push({
