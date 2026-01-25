@@ -5,6 +5,7 @@ import { getRegionSales, createRegionCarousel, createRegionPeriodCarousel } from
 import { getHospitalSales, createHospitalCarousel, createHospitalPeriodCarousel } from '../services/sales/hospitalSales';
 import { getDrugSales, createDrugCarousel } from '../services/sales/drugSales';
 import { getCsoSales, createCsoCarousel, createCsoPeriodCarousel } from '../services/sales/csoSales';
+import { withDbRetry } from '../utils/dbErrorHandler';
 
 /**
  * Postback 데이터 타입 (버튼 클릭 시 전달되는 데이터)
@@ -120,70 +121,53 @@ async function handleSearchSelect(userId: string, data: PostbackData): Promise<v
 
   logger.info(`Search select: type=${type}, value=${value}`);
 
-  try {
-    switch (type) {
-      case 'region':
-        // 즉시 안내 메시지
-        await sendTextMessage(userId, `[지역 - ${value}] 검색합니다.`);
-        // 지역 상세 조회
-        const regionResult = await getRegionSales(value);
-        if (regionResult) {
-          const regionCarousel = createRegionCarousel(value, regionResult);
-          await sendFlexMessage(userId, regionCarousel, `[${value}] 분석 완료`);
-        } else {
-          await sendTextMessage(userId, `'${value}' 지역의 매출 데이터가 없습니다.`);
-        }
-        break;
-
-      case 'hospital':
-        // 병원 상세 조회 (hos_cd|hos_cso_cd 파싱)
-        const [hos_cd, hos_cso_cd] = value.split('|');
-        const hospitalResult = await getHospitalSales(hos_cd, hos_cso_cd);
-        if (hospitalResult) {
-          const hospitalName = hospitalResult.hospital.hos_abbr || hospitalResult.hospital.hos_name;
-          // 즉시 안내 메시지
-          await sendTextMessage(userId, `[병원 - ${hospitalName}] 검색합니다.`);
-          const hospitalCarousel = createHospitalCarousel(hospitalResult);
-          await sendFlexMessage(userId, hospitalCarousel, `[${hospitalName}] 분석 완료`);
-        } else {
-          await sendTextMessage(userId, '해당 병원의 매출 데이터가 없습니다.');
-        }
-        break;
-
-      case 'drug':
-        // 약품 상세 조회
-        const drugResult = await getDrugSales(value);
-        if (drugResult) {
-          const drugName = drugResult.drug.drug_name;
-          // 즉시 안내 메시지
-          await sendTextMessage(userId, `[약품 - ${drugName}] 검색합니다.`);
-          const drugCarousel = createDrugCarousel(drugResult);
-          await sendFlexMessage(userId, drugCarousel, `[${drugName}] 분석 완료`);
-        } else {
-          await sendTextMessage(userId, '해당 약품의 매출 데이터가 없습니다.');
-        }
-        break;
-
-      case 'cso':
-        // CSO 상세 조회
-        const csoResult = await getCsoSales(value);
-        if (csoResult) {
-          const csoName = csoResult.cso.cso_dealer_nm;
-          // 즉시 안내 메시지
-          await sendTextMessage(userId, `[CSO - ${csoName}] 검색합니다.`);
-          const csoCarousel = createCsoCarousel(csoResult);
-          await sendFlexMessage(userId, csoCarousel, `[${csoName}] 분석 완료`);
-        } else {
-          await sendTextMessage(userId, '해당 CSO의 매출 데이터가 없습니다.');
-        }
-        break;
-
-      default:
-        await sendTextMessage(userId, `알 수 없는 검색 타입: ${type}`);
+  switch (type) {
+    case 'region': {
+      await sendTextMessage(userId, `[지역 - ${value}] 검색합니다.`);
+      const regionResult = await withDbRetry(userId, () => getRegionSales(value), '지역 조회');
+      if (regionResult) {
+        const regionCarousel = createRegionCarousel(value, regionResult);
+        await sendFlexMessage(userId, regionCarousel, `[${value}] 분석 완료`);
+      }
+      break;
     }
-  } catch (error) {
-    logger.error(`Search select error:`, error);
-    await sendTextMessage(userId, '조회 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+
+    case 'hospital': {
+      const [hos_cd, hos_cso_cd] = value.split('|');
+      const hospitalResult = await withDbRetry(userId, () => getHospitalSales(hos_cd, hos_cso_cd), '병원 조회');
+      if (hospitalResult) {
+        const hospitalName = hospitalResult.hospital.hos_abbr || hospitalResult.hospital.hos_name;
+        await sendTextMessage(userId, `[병원 - ${hospitalName}] 검색합니다.`);
+        const hospitalCarousel = createHospitalCarousel(hospitalResult);
+        await sendFlexMessage(userId, hospitalCarousel, `[${hospitalName}] 분석 완료`);
+      }
+      break;
+    }
+
+    case 'drug': {
+      const drugResult = await withDbRetry(userId, () => getDrugSales(value), '약품 조회');
+      if (drugResult) {
+        const drugName = drugResult.drug.drug_name;
+        await sendTextMessage(userId, `[약품 - ${drugName}] 검색합니다.`);
+        const drugCarousel = createDrugCarousel(drugResult);
+        await sendFlexMessage(userId, drugCarousel, `[${drugName}] 분석 완료`);
+      }
+      break;
+    }
+
+    case 'cso': {
+      const csoResult = await withDbRetry(userId, () => getCsoSales(value), 'CSO 조회');
+      if (csoResult) {
+        const csoName = csoResult.cso.cso_dealer_nm;
+        await sendTextMessage(userId, `[CSO - ${csoName}] 검색합니다.`);
+        const csoCarousel = createCsoCarousel(csoResult);
+        await sendFlexMessage(userId, csoCarousel, `[${csoName}] 분석 완료`);
+      }
+      break;
+    }
+
+    default:
+      await sendTextMessage(userId, `알 수 없는 검색 타입: ${type}`);
   }
 }
 
@@ -214,26 +198,15 @@ async function handleHospitalPeriod(userId: string, data: PostbackData): Promise
 
   logger.info(`Hospital period change: ${period_months}개월, hos_cd=${hos_cd}, hos_cso_cd=${hos_cso_cd}`);
 
-  try {
-    const result = await getHospitalSales(hos_cd, hos_cso_cd, period_months);
+  const result = await withDbRetry(userId, () => getHospitalSales(hos_cd, hos_cso_cd, period_months), '병원 조회');
+  if (!result) return;
 
-    if (!result) {
-      await sendTextMessage(userId, '해당 병원의 매출 데이터가 없습니다.');
-      return;
-    }
+  const hospitalName = result.hospital.hos_abbr || result.hospital.hos_name;
+  const carousel = period_months === 3
+    ? createHospitalCarousel(result)
+    : createHospitalPeriodCarousel(result);
 
-    const hospitalName = result.hospital.hos_abbr || result.hospital.hos_name;
-
-    // 3개월이면 기본 캐러셀, 그 외에는 기간별 캐러셀
-    const carousel = period_months === 3
-      ? createHospitalCarousel(result)
-      : createHospitalPeriodCarousel(result);
-
-    await sendFlexMessage(userId, carousel, `[${hospitalName}] ${period_months}개월 분석`);
-  } catch (error) {
-    logger.error(`Hospital period error:`, error);
-    await sendTextMessage(userId, '조회 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
-  }
+  await sendFlexMessage(userId, carousel, `[${hospitalName}] ${period_months}개월 분석`);
 }
 
 /**
@@ -250,26 +223,15 @@ async function handleCsoPeriod(userId: string, data: PostbackData): Promise<void
 
   logger.info(`CSO period change: ${period_months}개월, cso_cd=${cso_cd}`);
 
-  try {
-    const result = await getCsoSales(cso_cd, period_months);
+  const result = await withDbRetry(userId, () => getCsoSales(cso_cd, period_months), 'CSO 조회');
+  if (!result) return;
 
-    if (!result) {
-      await sendTextMessage(userId, '해당 CSO의 매출 데이터가 없습니다.');
-      return;
-    }
+  const csoName = result.cso.cso_dealer_nm;
+  const carousel = period_months === 3
+    ? createCsoCarousel(result)
+    : createCsoPeriodCarousel(result);
 
-    const csoName = result.cso.cso_dealer_nm;
-
-    // 3개월이면 기본 캐러셀, 그 외에는 기간별 캐러셀
-    const carousel = period_months === 3
-      ? createCsoCarousel(result)
-      : createCsoPeriodCarousel(result);
-
-    await sendFlexMessage(userId, carousel, `[${csoName}] ${period_months}개월 분석`);
-  } catch (error) {
-    logger.error(`CSO period error:`, error);
-    await sendTextMessage(userId, '조회 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
-  }
+  await sendFlexMessage(userId, carousel, `[${csoName}] ${period_months}개월 분석`);
 }
 
 /**
@@ -286,24 +248,14 @@ async function handleChangePeriod(userId: string, data: PostbackData): Promise<v
 
   logger.info(`Region period change: ${period_months}개월, region=${region}`);
 
-  try {
-    const result = await getRegionSales(region, period_months);
+  const result = await withDbRetry(userId, () => getRegionSales(region, period_months), '지역 조회');
+  if (!result) return;
 
-    if (!result) {
-      await sendTextMessage(userId, `'${region}' 지역의 매출 데이터가 없습니다.`);
-      return;
-    }
+  const carousel = period_months === 3
+    ? createRegionCarousel(region, result)
+    : createRegionPeriodCarousel(region, result);
 
-    // 3개월이면 기본 캐러셀, 그 외에는 기간별 캐러셀
-    const carousel = period_months === 3
-      ? createRegionCarousel(region, result)
-      : createRegionPeriodCarousel(region, result);
-
-    await sendFlexMessage(userId, carousel, `[${region}] ${period_months}개월 분석`);
-  } catch (error) {
-    logger.error(`Region period error:`, error);
-    await sendTextMessage(userId, '조회 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
-  }
+  await sendFlexMessage(userId, carousel, `[${region}] ${period_months}개월 분석`);
 }
 
 /**
@@ -314,41 +266,32 @@ async function handleDrillDown(userId: string, data: PostbackData): Promise<void
 
   logger.info(`Drill down: type=${type}, context=${JSON.stringify(context)}`);
 
-  try {
-    switch (type) {
-      case 'hospital_detail':
-        // 병원 상세 조회
-        const { hos_cd, hos_cso_cd, period_months = 3 } = context || {};
-        if (!hos_cd || !hos_cso_cd) {
-          await sendTextMessage(userId, '병원 정보가 누락되었습니다.');
-          return;
-        }
+  switch (type) {
+    case 'hospital_detail': {
+      const { hos_cd, hos_cso_cd, period_months = 3 } = context || {};
+      if (!hos_cd || !hos_cso_cd) {
+        await sendTextMessage(userId, '병원 정보가 누락되었습니다.');
+        return;
+      }
 
-        const hospitalResult = await getHospitalSales(hos_cd, hos_cso_cd, period_months);
-        if (hospitalResult) {
-          const hospitalName = hospitalResult.hospital.hos_abbr || hospitalResult.hospital.hos_name;
-          const carousel = createHospitalCarousel(hospitalResult);
-          await sendFlexMessage(userId, carousel, `[${hospitalName}] 분석 완료`);
-        } else {
-          await sendTextMessage(userId, '해당 병원의 매출 데이터가 없습니다.');
-        }
-        break;
-
-      case 'top_hospitals':
-        // TOP5 병원 (지역 캐러셀에서 이미 보여주고 있음 - 추가 정보 요청 시)
-        await sendTextMessage(userId, 'TOP5 병원 상세 기능은 준비 중입니다.');
-        break;
-
-      case 'top_drugs':
-        // TOP5 품목 (지역 캐러셀에서 이미 보여주고 있음 - 추가 정보 요청 시)
-        await sendTextMessage(userId, 'TOP5 품목 상세 기능은 준비 중입니다.');
-        break;
-
-      default:
-        await sendTextMessage(userId, `알 수 없는 drill-down 타입: ${type}`);
+      const hospitalResult = await withDbRetry(userId, () => getHospitalSales(hos_cd, hos_cso_cd, period_months), '병원 조회');
+      if (hospitalResult) {
+        const hospitalName = hospitalResult.hospital.hos_abbr || hospitalResult.hospital.hos_name;
+        const carousel = createHospitalCarousel(hospitalResult);
+        await sendFlexMessage(userId, carousel, `[${hospitalName}] 분석 완료`);
+      }
+      break;
     }
-  } catch (error) {
-    logger.error(`Drill down error:`, error);
-    await sendTextMessage(userId, '조회 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+
+    case 'top_hospitals':
+      await sendTextMessage(userId, 'TOP5 병원 상세 기능은 준비 중입니다.');
+      break;
+
+    case 'top_drugs':
+      await sendTextMessage(userId, 'TOP5 품목 상세 기능은 준비 중입니다.');
+      break;
+
+    default:
+      await sendTextMessage(userId, `알 수 없는 drill-down 타입: ${type}`);
   }
 }

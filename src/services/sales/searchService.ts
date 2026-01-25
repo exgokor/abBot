@@ -1002,9 +1002,10 @@ function createDrugBubble(drugs: DrugSearchResult[]): any {
  */
 function createCsoBubble(csos: CsoSearchResult[]): any {
   const buttonData = csos.map((cso) => ({
-    label:
-      cso.cso_dealer_nm +
-      (cso.cso_corp_nm ? ` (${cso.cso_corp_nm.slice(0, 6)})` : ""),
+    // 회사명(CSO딜러명) 형식으로 변경
+    label: cso.cso_corp_nm
+      ? `${cso.cso_corp_nm} (${cso.cso_dealer_nm})`
+      : cso.cso_dealer_nm,
     data: JSON.stringify({
       action: "search_select",
       type: "cso",

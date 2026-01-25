@@ -8,20 +8,11 @@ import {
   formatSalesMoney,
   formatMonthlyTrend as formatTrend
 } from '../../utils/numberFormatter';
-
-// 색상 팔레트
-const COLORS = {
-  background: '#F0F8FF',
-  white: '#FFFFFF',
-  navy: '#1D3A8F',
-  text: '#000000',
-  subtext: '#666666',
-  lightGray: '#999999',
-  border: '#E5E5E5'
-};
-
-// 로고 URL
-const LOGO_URL = 'https://storage.worksmobile.com/k1/drive/r/24101/300118260/300118260/@2001000000362831/3472530909344205321?fileId=QDIwMDEwMDAwMDAzNjI4MzF8MzQ3MjUzMDkwOTM0NDIwNTMyMXxGfDA&downloadType=O&resourceType=thumbnail&resourceFormat=origin&cache=1734582221372&conditionalAccessPolicy=false';
+import {
+  COLORS,
+  LOGO_URL,
+  createDetailBubble
+} from '../../utils/bubbleBuilder';
 
 interface MonthlySalesData {
   sales_year: number;
@@ -329,45 +320,15 @@ export function createDrugCarousel(result: DrugSalesResult): any {
     }
   };
 
-  // 병원 상세 버블
-  const hospitalBubble = {
-    type: 'bubble',
-    body: {
-      type: 'box',
-      layout: 'vertical',
-      contents: [
-        {
-          type: 'text',
-          text: 'TOP 병원별 매출',
-          size: 'lg',
-          color: COLORS.text,
-          weight: 'bold',
-          align: 'center'
-        },
-        {
-          type: 'text',
-          text: periodText,
-          size: 'xs',
-          color: COLORS.lightGray,
-          align: 'center',
-          margin: 'sm'
-        },
-        {
-          type: 'box',
-          layout: 'vertical',
-          contents: hospitalContents.length > 0 ? hospitalContents : [
-            { type: 'text', text: '데이터가 없습니다', size: 'sm', color: COLORS.lightGray, align: 'center' }
-          ],
-          paddingAll: '15px',
-          margin: 'lg',
-          backgroundColor: COLORS.white,
-          cornerRadius: '10px'
-        }
-      ],
-      backgroundColor: COLORS.background,
-      paddingBottom: '15px'
-    }
-  };
+  // 병원 상세 버블 (공통 디자인 적용)
+  const hospitalBubble = createDetailBubble({
+    headerTitle: 'Top Hospitals',
+    subTitle: 'TOP 병원별 매출',
+    period: periodText,
+    bodyContents: hospitalContents.length > 0 ? hospitalContents : [
+      { type: 'text', text: '데이터가 없습니다', size: 'sm', color: COLORS.lightGray, align: 'center' }
+    ]
+  });
 
   return {
     type: 'carousel',
