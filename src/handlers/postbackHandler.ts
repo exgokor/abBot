@@ -1,22 +1,21 @@
 import { PostbackRequest } from './index';
 import { logger } from '../utils/logger';
-import { sendTextMessage, sendFlexMessage, createTextBubble } from '../services/naverworks/message';
-import { getRegionSales, createRegionCarousel, createRegionPeriodCarousel } from '../services/sales/regionSales';
-import { getHospitalSales, createHospitalCarousel, createHospitalPeriodCarousel } from '../services/sales/hospitalSales';
+import { sendTextMessage, sendFlexMessage } from '../services/naverworks/message';
+import { getCsoSales, createCsoCarousel } from '../services/sales/csoSales';
+import { getHospitalSales, createHospitalCarousel } from '../services/sales/hospitalSales';
 import { getDrugSales, createDrugCarousel } from '../services/sales/drugSales';
-import { getCsoSales, createCsoCarousel, createCsoPeriodCarousel } from '../services/sales/csoSales';
+import {
+  getCsoHospitalSales,
+  getCsoDrugSales,
+  getHospitalDrugSales,
+  getHospitalCsoSales,
+  getDrugHospitalSales,
+  getDrugCsoSales,
+  createCompositeBubble
+} from '../services/sales/compositeService';
+import { decodePostback, PostbackData } from '../types/postback';
+import { getCurrentPeriod } from '../services/sales/periodService';
 import { withDbRetry } from '../utils/dbErrorHandler';
-
-/**
- * Postback 데이터 타입 (버튼 클릭 시 전달되는 데이터)
- */
-interface PostbackData {
-  Category?: string;
-  Code?: string;
-  Name?: string;
-  action?: string;
-  [key: string]: any;
-}
 
 /**
  * Postback 메시지 처리
@@ -27,271 +26,233 @@ export async function handlePostback(request: PostbackRequest): Promise<void> {
 
   logger.info(`Postback from ${userId}: ${rawData}`);
 
-  let data: PostbackData;
+  // 새 형식 postback 시도
+  const postback = decodePostback(rawData);
+  if (postback) {
+    await handleNewFormatPostback(userId, postback);
+    return;
+  }
+
+  // 기존 형식 postback 시도 (하위 호환)
   try {
-    data = JSON.parse(rawData);
+    const legacyData = JSON.parse(rawData);
+    await handleLegacyPostback(userId, legacyData);
   } catch {
     logger.error(`Failed to parse postback data: ${rawData}`);
     await sendTextMessage(userId, '요청 처리 중 오류가 발생했습니다.');
+  }
+}
+
+/**
+ * 새 형식 postback 처리 (d, t, c)
+ */
+async function handleNewFormatPostback(userId: string, postback: PostbackData): Promise<void> {
+  const { d: depth, t: type, c: code } = postback;
+
+  logger.info(`New format postback: depth=${depth}, type=${type}, code=${code}`);
+
+  const period = await getCurrentPeriod(3);
+
+  if (depth === 2) {
+    await handleDepth2(userId, type, code, period);
+  } else if (depth === 3) {
+    await handleDepth3(userId, type, code, period);
+  } else {
+    logger.warn(`Unknown depth: ${depth}`);
+    await sendTextMessage(userId, '알 수 없는 요청입니다.');
+  }
+}
+
+/**
+ * Depth2 단일 엔티티 조회
+ */
+async function handleDepth2(
+  userId: string,
+  type: string,
+  code: string,
+  period: any
+): Promise<void> {
+  switch (type) {
+    case 'CSO': {
+      const result = await withDbRetry(userId, () => getCsoSales(code, period), 'CSO 조회');
+      if (result) {
+        const carousel = createCsoCarousel(result);
+        await sendFlexMessage(userId, carousel, `[${result.cso.cso_dealer_nm}] CSO 조회`);
+      }
+      break;
+    }
+
+    case 'HOSPITAL': {
+      const [hos_cd, hos_cso_cd] = code.split('|');
+      const result = await withDbRetry(userId, () => getHospitalSales(hos_cd, hos_cso_cd, period), '병원 조회');
+      if (result) {
+        const hospitalName = result.hospital.hos_abbr || result.hospital.hos_name;
+        const carousel = createHospitalCarousel(result);
+        await sendFlexMessage(userId, carousel, `[${hospitalName}] 병원 조회`);
+      }
+      break;
+    }
+
+    case 'DRUG': {
+      const result = await withDbRetry(userId, () => getDrugSales(code, period), '품목 조회');
+      if (result) {
+        const carousel = createDrugCarousel(result);
+        await sendFlexMessage(userId, carousel, `[${result.drug.drug_name}] 품목 조회`);
+      }
+      break;
+    }
+
+    default:
+      logger.warn(`Unknown Depth2 type: ${type}`);
+      await sendTextMessage(userId, '알 수 없는 조회 타입입니다.');
+  }
+}
+
+/**
+ * Depth3 복합 엔티티 조회
+ */
+async function handleDepth3(
+  userId: string,
+  type: string,
+  code: string,
+  period: any
+): Promise<void> {
+  switch (type) {
+    case 'CSO_HOSPITAL': {
+      // code: cso_cd|hos_cd|hos_cso_cd
+      const [cso_cd, hos_cd, hos_cso_cd] = code.split('|');
+      const result = await withDbRetry(
+        userId,
+        () => getCsoHospitalSales(cso_cd, hos_cd, hos_cso_cd, period),
+        'CSO-병원 조회'
+      );
+      if (result) {
+        const bubble = createCompositeBubble(result);
+        await sendFlexMessage(userId, bubble, result.title);
+      }
+      break;
+    }
+
+    case 'CSO_DRUG': {
+      // code: cso_cd|drug_cd
+      const [cso_cd, drug_cd] = code.split('|');
+      const result = await withDbRetry(
+        userId,
+        () => getCsoDrugSales(cso_cd, drug_cd, period),
+        'CSO-품목 조회'
+      );
+      if (result) {
+        const bubble = createCompositeBubble(result);
+        await sendFlexMessage(userId, bubble, result.title);
+      }
+      break;
+    }
+
+    case 'HOSPITAL_DRUG': {
+      // code: hos_cd|hos_cso_cd|drug_cd
+      const [hos_cd, hos_cso_cd, drug_cd] = code.split('|');
+      const result = await withDbRetry(
+        userId,
+        () => getHospitalDrugSales(hos_cd, hos_cso_cd, drug_cd, period),
+        '병원-품목 조회'
+      );
+      if (result) {
+        const bubble = createCompositeBubble(result);
+        await sendFlexMessage(userId, bubble, result.title);
+      }
+      break;
+    }
+
+    case 'HOSPITAL_CSO': {
+      // code: hos_cd|hos_cso_cd|cso_cd
+      const [hos_cd, hos_cso_cd, cso_cd] = code.split('|');
+      const result = await withDbRetry(
+        userId,
+        () => getHospitalCsoSales(hos_cd, hos_cso_cd, cso_cd, period),
+        '병원-CSO 조회'
+      );
+      if (result) {
+        const bubble = createCompositeBubble(result);
+        await sendFlexMessage(userId, bubble, result.title);
+      }
+      break;
+    }
+
+    case 'DRUG_HOSPITAL': {
+      // code: drug_cd|hos_cd|hos_cso_cd
+      const [drug_cd, hos_cd, hos_cso_cd] = code.split('|');
+      const result = await withDbRetry(
+        userId,
+        () => getDrugHospitalSales(drug_cd, hos_cd, hos_cso_cd, period),
+        '품목-병원 조회'
+      );
+      if (result) {
+        const bubble = createCompositeBubble(result);
+        await sendFlexMessage(userId, bubble, result.title);
+      }
+      break;
+    }
+
+    case 'DRUG_CSO': {
+      // code: drug_cd|cso_cd
+      const [drug_cd, cso_cd] = code.split('|');
+      const result = await withDbRetry(
+        userId,
+        () => getDrugCsoSales(drug_cd, cso_cd, period),
+        '품목-CSO 조회'
+      );
+      if (result) {
+        const bubble = createCompositeBubble(result);
+        await sendFlexMessage(userId, bubble, result.title);
+      }
+      break;
+    }
+
+    default:
+      logger.warn(`Unknown Depth3 type: ${type}`);
+      await sendTextMessage(userId, '알 수 없는 조회 타입입니다.');
+  }
+}
+
+/**
+ * 기존 형식 postback 처리 (하위 호환)
+ */
+async function handleLegacyPostback(userId: string, data: any): Promise<void> {
+  const { action, type, value, context } = data;
+
+  // search_select 처리 (검색 결과 선택)
+  if (action === 'search_select') {
+    const period = await getCurrentPeriod(3);
+
+    switch (type) {
+      case 'cso':
+        await handleDepth2(userId, 'CSO', value, period);
+        break;
+      case 'hospital':
+        await handleDepth2(userId, 'HOSPITAL', value, period);
+        break;
+      case 'drug':
+        await handleDepth2(userId, 'DRUG', value, period);
+        break;
+      default:
+        await sendTextMessage(userId, `알 수 없는 검색 타입: ${type}`);
+    }
     return;
   }
 
-  // Category 기반 라우팅
+  // Category 처리 (이전 형식)
   if (data.Category) {
-    await handleCategoryAction(userId, data);
+    await sendTextMessage(userId, `${data.Category} 카테고리 조회 기능이 업데이트되었습니다. 다시 검색해주세요.`);
     return;
   }
 
-  // action 기반 라우팅
-  if (data.action) {
-    await handleAction(userId, data);
+  // 기타 action 처리
+  if (action) {
+    logger.info(`Legacy action: ${action}, context: ${JSON.stringify(context)}`);
+    await sendTextMessage(userId, `${action} 기능은 준비 중입니다.`);
     return;
   }
 
-  // 기본 처리
-  logger.warn(`Unknown postback format: ${rawData}`);
+  logger.warn(`Unknown legacy postback format: ${JSON.stringify(data)}`);
   await sendTextMessage(userId, '알 수 없는 요청입니다.');
-}
-
-/**
- * 카테고리 기반 액션 처리
- */
-async function handleCategoryAction(userId: string, data: PostbackData): Promise<void> {
-  const { Category, Code, Name } = data;
-
-  logger.info(`Category action: ${Category}, Code: ${Code}, Name: ${Name}`);
-
-  switch (Category) {
-    case '병원':
-      await handleHospitalAction(userId, Code, Name);
-      break;
-
-    default:
-      await sendTextMessage(userId, `${Category} 카테고리 처리 준비 중입니다.`);
-  }
-}
-
-/**
- * 액션 기반 처리
- */
-async function handleAction(userId: string, data: PostbackData): Promise<void> {
-  const { action } = data;
-
-  logger.info(`Action: ${action}`);
-
-  switch (action) {
-    case 'confirm':
-      await sendTextMessage(userId, '확인되었습니다.');
-      break;
-
-    case 'cancel':
-      await sendTextMessage(userId, '취소되었습니다.');
-      break;
-
-    case 'search_select':
-      await handleSearchSelect(userId, data);
-      break;
-
-    case 'hospital_period':
-      await handleHospitalPeriod(userId, data);
-      break;
-
-    case 'cso_period':
-      await handleCsoPeriod(userId, data);
-      break;
-
-    case 'change_period':
-      await handleChangePeriod(userId, data);
-      break;
-
-    case 'drill_down':
-      await handleDrillDown(userId, data);
-      break;
-
-    default:
-      await sendTextMessage(userId, `알 수 없는 액션: ${action}`);
-  }
-}
-
-/**
- * 검색 결과 선택 처리
- */
-async function handleSearchSelect(userId: string, data: PostbackData): Promise<void> {
-  const { type, value } = data;
-
-  logger.info(`Search select: type=${type}, value=${value}`);
-
-  switch (type) {
-    case 'region': {
-      await sendTextMessage(userId, `[지역 - ${value}] 검색합니다.`);
-      const regionResult = await withDbRetry(userId, () => getRegionSales(value), '지역 조회');
-      if (regionResult) {
-        const regionCarousel = createRegionCarousel(value, regionResult);
-        await sendFlexMessage(userId, regionCarousel, `[${value}] 분석 완료`);
-      }
-      break;
-    }
-
-    case 'hospital': {
-      const [hos_cd, hos_cso_cd] = value.split('|');
-      const hospitalResult = await withDbRetry(userId, () => getHospitalSales(hos_cd, hos_cso_cd), '병원 조회');
-      if (hospitalResult) {
-        const hospitalName = hospitalResult.hospital.hos_abbr || hospitalResult.hospital.hos_name;
-        await sendTextMessage(userId, `[병원 - ${hospitalName}] 검색합니다.`);
-        const hospitalCarousel = createHospitalCarousel(hospitalResult);
-        await sendFlexMessage(userId, hospitalCarousel, `[${hospitalName}] 분석 완료`);
-      }
-      break;
-    }
-
-    case 'drug': {
-      const drugResult = await withDbRetry(userId, () => getDrugSales(value), '약품 조회');
-      if (drugResult) {
-        const drugName = drugResult.drug.drug_name;
-        await sendTextMessage(userId, `[약품 - ${drugName}] 검색합니다.`);
-        const drugCarousel = createDrugCarousel(drugResult);
-        await sendFlexMessage(userId, drugCarousel, `[${drugName}] 분석 완료`);
-      }
-      break;
-    }
-
-    case 'cso': {
-      const csoResult = await withDbRetry(userId, () => getCsoSales(value), 'CSO 조회');
-      if (csoResult) {
-        const csoName = csoResult.cso.cso_dealer_nm;
-        await sendTextMessage(userId, `[CSO - ${csoName}] 검색합니다.`);
-        const csoCarousel = createCsoCarousel(csoResult);
-        await sendFlexMessage(userId, csoCarousel, `[${csoName}] 분석 완료`);
-      }
-      break;
-    }
-
-    default:
-      await sendTextMessage(userId, `알 수 없는 검색 타입: ${type}`);
-  }
-}
-
-/**
- * 병원 관련 액션 처리
- */
-async function handleHospitalAction(userId: string, code?: string, name?: string): Promise<void> {
-  // TODO: DB에서 병원 정보 조회
-  const flexMessage = createTextBubble(
-    `병원 정보`,
-    `병원명: ${name || '알 수 없음'}\n코드: ${code || '없음'}\n\n상세 정보는 준비 중입니다.`
-  );
-
-  await sendFlexMessage(userId, flexMessage, '병원 정보');
-}
-
-/**
- * 병원 기간 변경 처리 (6개월/1년/3개월)
- */
-async function handleHospitalPeriod(userId: string, data: PostbackData): Promise<void> {
-  const { period_months, context } = data;
-  const { hos_cd, hos_cso_cd } = context || {};
-
-  if (!hos_cd || !hos_cso_cd) {
-    await sendTextMessage(userId, '병원 정보가 누락되었습니다.');
-    return;
-  }
-
-  logger.info(`Hospital period change: ${period_months}개월, hos_cd=${hos_cd}, hos_cso_cd=${hos_cso_cd}`);
-
-  const result = await withDbRetry(userId, () => getHospitalSales(hos_cd, hos_cso_cd, period_months), '병원 조회');
-  if (!result) return;
-
-  const hospitalName = result.hospital.hos_abbr || result.hospital.hos_name;
-  const carousel = period_months === 3
-    ? createHospitalCarousel(result)
-    : createHospitalPeriodCarousel(result);
-
-  await sendFlexMessage(userId, carousel, `[${hospitalName}] ${period_months}개월 분석`);
-}
-
-/**
- * CSO 기간 변경 처리 (6개월/1년/3개월)
- */
-async function handleCsoPeriod(userId: string, data: PostbackData): Promise<void> {
-  const { period_months, context } = data;
-  const { cso_cd } = context || {};
-
-  if (!cso_cd) {
-    await sendTextMessage(userId, 'CSO 정보가 누락되었습니다.');
-    return;
-  }
-
-  logger.info(`CSO period change: ${period_months}개월, cso_cd=${cso_cd}`);
-
-  const result = await withDbRetry(userId, () => getCsoSales(cso_cd, period_months), 'CSO 조회');
-  if (!result) return;
-
-  const csoName = result.cso.cso_dealer_nm;
-  const carousel = period_months === 3
-    ? createCsoCarousel(result)
-    : createCsoPeriodCarousel(result);
-
-  await sendFlexMessage(userId, carousel, `[${csoName}] ${period_months}개월 분석`);
-}
-
-/**
- * 지역 기간 변경 처리 (6개월/1년/3개월)
- */
-async function handleChangePeriod(userId: string, data: PostbackData): Promise<void> {
-  const { period_months, context } = data;
-  const { region } = context || {};
-
-  if (!region) {
-    await sendTextMessage(userId, '지역 정보가 누락되었습니다.');
-    return;
-  }
-
-  logger.info(`Region period change: ${period_months}개월, region=${region}`);
-
-  const result = await withDbRetry(userId, () => getRegionSales(region, period_months), '지역 조회');
-  if (!result) return;
-
-  const carousel = period_months === 3
-    ? createRegionCarousel(region, result)
-    : createRegionPeriodCarousel(region, result);
-
-  await sendFlexMessage(userId, carousel, `[${region}] ${period_months}개월 분석`);
-}
-
-/**
- * Drill-down 처리 (TOP5 병원, TOP5 품목, 병원 상세)
- */
-async function handleDrillDown(userId: string, data: PostbackData): Promise<void> {
-  const { type, context } = data;
-
-  logger.info(`Drill down: type=${type}, context=${JSON.stringify(context)}`);
-
-  switch (type) {
-    case 'hospital_detail': {
-      const { hos_cd, hos_cso_cd, period_months = 3 } = context || {};
-      if (!hos_cd || !hos_cso_cd) {
-        await sendTextMessage(userId, '병원 정보가 누락되었습니다.');
-        return;
-      }
-
-      const hospitalResult = await withDbRetry(userId, () => getHospitalSales(hos_cd, hos_cso_cd, period_months), '병원 조회');
-      if (hospitalResult) {
-        const hospitalName = hospitalResult.hospital.hos_abbr || hospitalResult.hospital.hos_name;
-        const carousel = createHospitalCarousel(hospitalResult);
-        await sendFlexMessage(userId, carousel, `[${hospitalName}] 분석 완료`);
-      }
-      break;
-    }
-
-    case 'top_hospitals':
-      await sendTextMessage(userId, 'TOP5 병원 상세 기능은 준비 중입니다.');
-      break;
-
-    case 'top_drugs':
-      await sendTextMessage(userId, 'TOP5 품목 상세 기능은 준비 중입니다.');
-      break;
-
-    default:
-      await sendTextMessage(userId, `알 수 없는 drill-down 타입: ${type}`);
-  }
 }

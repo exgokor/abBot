@@ -1,12 +1,26 @@
+/**
+ * 텍스트 메시지 핸들러 (V2)
+ * Depth1: 검색 로직
+ */
+
 import { TextMessageRequest } from './index';
 import { logger } from '../utils/logger';
 import { sendTextMessage, sendFlexMessage, createTextBubble, createButtonBubble } from '../services/naverworks/message';
-import { getRegionSales, createRegionCarousel } from '../services/sales/regionSales';
-import { searchAll, getTotalCount, isSingleResult, createSearchResultCarousel, getCategoryTrend } from '../services/sales/searchService';
-import { getHospitalSales, createHospitalCarousel } from '../services/sales/hospitalSales';
-import { getDrugSales, createDrugCarousel } from '../services/sales/drugSales';
-import { getCsoSales, createCsoCarousel } from '../services/sales/csoSales';
+import {
+  searchAll,
+  getTotalCount,
+  isSingleResult,
+  isTooManyResults,
+  getSingleEntity,
+  createSearchResultCarousel,
+} from '../services/sales/searchService';
+import { getCurrentPeriod } from '../services/sales/periodService';
 import { withDbRetry } from '../utils/dbErrorHandler';
+
+// Depth2 핸들러들 (추후 구현)
+// import { handleCsoDepth2 } from './depth2/csoHandler';
+// import { handleHospitalDepth2 } from './depth2/hospitalHandler';
+// import { handleDrugDepth2 } from './depth2/drugHandler';
 
 /**
  * 텍스트 메시지 처리
@@ -23,8 +37,8 @@ export async function handleTextMessage(request: TextMessageRequest): Promise<vo
     return;
   }
 
-  // 일반 텍스트 처리
-  await handleGeneralText(userId, text);
+  // 일반 텍스트 처리 (Depth1 검색)
+  await handleDepth1Search(userId, text);
 }
 
 /**
@@ -58,113 +72,100 @@ async function handleCommand(userId: string, text: string): Promise<void> {
 }
 
 /**
- * 일반 텍스트 처리 - 통합 검색
+ * Depth1: 통합 검색
+ * - 결과 0개: 재입력 요청
+ * - 결과 1개: 바로 Depth2로 이동
+ * - 결과 2~20개: 카테고리별 캐러셀 표시
+ * - 결과 21개+: 더 정확한 검색어 요청
  */
-async function handleGeneralText(userId: string, text: string): Promise<void> {
+async function handleDepth1Search(userId: string, keyword: string): Promise<void> {
   // 즉시 안내 메시지 전송
-  await sendTextMessage(userId, `[ ${text} ] 로 결과를 검색합니다.`);
+  await sendTextMessage(userId, `[ ${keyword} ] 검색 중...`);
 
-  // 통합 검색 실행 (DB 에러 시 재시도)
+  // 기간 정보 조회
+  const period = await withDbRetry(
+    userId,
+    () => getCurrentPeriod(3),
+    '기간 조회'
+  );
+
+  if (!period) return;
+
+  // 통합 검색 실행
   const searchResult = await withDbRetry(
     userId,
-    () => searchAll(text),
+    () => searchAll(keyword),
     '검색'
   );
 
-  if (!searchResult) return; // 에러 발생 시 이미 메시지 전송됨
+  if (!searchResult) return;
 
   const totalCount = getTotalCount(searchResult);
 
-  // 결과 없음
+  // Case 1: 결과 없음
   if (totalCount === 0) {
-    await sendTextMessage(userId, `[${text}] 검색 결과가 없습니다.`);
+    await sendTextMessage(userId, `"${keyword}" 검색 결과가 없습니다.\n다른 검색어를 입력해주세요.`);
     return;
   }
 
-  // 단일 결과 → 바로 상세 조회
+  // Case 2: 결과가 너무 많음 (21개 이상)
+  if (isTooManyResults(searchResult)) {
+    await sendTextMessage(
+      userId,
+      `"${keyword}" 검색 결과가 ${totalCount}건으로 너무 많습니다.\n검색어를 더 정확하게 입력해주세요.`
+    );
+    return;
+  }
+
+  // Case 3: 단일 결과 → 바로 Depth2로
   if (isSingleResult(searchResult)) {
-    if (searchResult.regions.length === 1) {
-      await handleRegionSearch(userId, searchResult.regions[0].hosIndex);
-    } else if (searchResult.hospitals.length === 1) {
-      const h = searchResult.hospitals[0];
-      await handleHospitalSearch(userId, h.hos_cd, h.hos_cso_cd);
-    } else if (searchResult.drugs.length === 1) {
-      await handleDrugSearch(userId, searchResult.drugs[0].drug_cd);
-    } else if (searchResult.csos.length === 1) {
-      await handleCsoSearch(userId, searchResult.csos[0].cso_cd);
+    const entity = getSingleEntity(searchResult);
+    if (entity) {
+      await sendTextMessage(userId, `"${entity.search_name}" 조회 중...`);
+
+      // TODO: Depth2 핸들러 호출
+      // switch (entity.entity_type) {
+      //   case 'CSO':
+      //     await handleCsoDepth2(userId, entity.entity_cd, period);
+      //     break;
+      //   case 'HOSPITAL':
+      //     const [hos_cd, hos_cso_cd] = entity.entity_cd.split('|');
+      //     await handleHospitalDepth2(userId, hos_cd, hos_cso_cd, period);
+      //     break;
+      //   case 'DRUG':
+      //     await handleDrugDepth2(userId, entity.entity_cd, period);
+      //     break;
+      // }
+
+      // 임시: 단일 결과도 캐러셀로 표시
+      const carousel = createSearchResultCarousel(keyword, searchResult, period.periodText);
+      await sendFlexMessage(userId, carousel, `[${keyword}] 검색 완료`);
+      return;
     }
-    return;
   }
 
-  // 복수 결과 → 선택 캐러셀
-  // 검색 결과가 있는 모든 카테고리에 대해 트렌드 데이터 조회 (매출 요약 버블용)
-  const trendData: {
-    region?: Awaited<ReturnType<typeof getCategoryTrend>>;
-    hospital?: Awaited<ReturnType<typeof getCategoryTrend>>;
-    drug?: Awaited<ReturnType<typeof getCategoryTrend>>;
-    cso?: Awaited<ReturnType<typeof getCategoryTrend>>;
-  } = {};
+  // Case 4: 복수 결과 (2~20개) → 캐러셀 표시
+  const carousel = createSearchResultCarousel(keyword, searchResult, period.periodText);
+  await sendFlexMessage(userId, carousel, `[${keyword}] 검색 완료`);
 
-  const trendPromises: Promise<void>[] = [];
-
-  if (searchResult.regionTotalCount > 0) {
-    trendPromises.push(
-      getCategoryTrend('region', text, searchResult).then(data => { trendData.region = data; })
-    );
-  }
-  if (searchResult.hospitalTotalCount > 0) {
-    trendPromises.push(
-      getCategoryTrend('hospital', text, searchResult).then(data => { trendData.hospital = data; })
-    );
-  }
-  if (searchResult.drugTotalCount > 0) {
-    trendPromises.push(
-      getCategoryTrend('drug', text, searchResult).then(data => { trendData.drug = data; })
-    );
-  }
-  if (searchResult.csoTotalCount > 0) {
-    trendPromises.push(
-      getCategoryTrend('cso', text, searchResult).then(data => { trendData.cso = data; })
-    );
-  }
-
-  await Promise.all(trendPromises);
-
-  const carousel = createSearchResultCarousel(text, searchResult, trendData);
-  await sendFlexMessage(userId, carousel, `[${text}] 분석 완료`);
-}
-
-/**
- * 지역 매출 조회
- */
-async function handleRegionSearch(userId: string, keyword: string): Promise<void> {
-  logger.info(`Region search: ${keyword} for user ${userId}`);
-
-  const result = await withDbRetry(
-    userId,
-    () => getRegionSales(keyword),
-    '지역 조회'
-  );
-
-  if (!result) return; // 에러 또는 데이터 없음
-
-  const carousel = createRegionCarousel(keyword, result);
-  await sendFlexMessage(userId, carousel, `[${keyword}] 분석 완료`);
-
-  logger.info(`Region carousel sent for ${keyword}`);
+  logger.info(`Search carousel sent for "${keyword}" (${totalCount} results)`);
 }
 
 /**
  * 도움말 메시지
  */
 async function sendHelpMessage(userId: string): Promise<void> {
-  const helpText = `[사용 가능한 명령어]
+  const helpText = `[매출 조회 챗봇 사용법]
+
+검색어를 입력하면 CSO, 병원, 품목을 검색합니다.
+
+예시:
+- "삼성" → 삼성 관련 병원/CSO/품목 검색
+- "아스피린" → 아스피린 관련 품목 검색
 
 /menu - 메뉴 표시
 /myinfo - 내 정보 조회
-/help - 도움말
-
-문의사항이 있으시면 관리자에게 연락해주세요.`;
+/help - 도움말`;
 
   await sendTextMessage(userId, helpText);
 }
@@ -188,71 +189,10 @@ async function sendMenuMessage(userId: string): Promise<void> {
  * 내 정보 조회
  */
 async function handleMyInfo(userId: string): Promise<void> {
-  // TODO: DB에서 사용자 정보 조회
   const flexMessage = createTextBubble(
     '내 정보',
     `사용자 ID: ${userId}\n\n상세 정보는 준비 중입니다.`
   );
 
   await sendFlexMessage(userId, flexMessage, '내 정보');
-}
-
-/**
- * 병원 매출 조회
- */
-export async function handleHospitalSearch(userId: string, hos_cd: string, hos_cso_cd: string): Promise<void> {
-  logger.info(`Hospital search: ${hos_cd}|${hos_cso_cd} for user ${userId}`);
-
-  const result = await withDbRetry(
-    userId,
-    () => getHospitalSales(hos_cd, hos_cso_cd),
-    '병원 조회'
-  );
-
-  if (!result) return; // 에러 또는 데이터 없음
-
-  const carousel = createHospitalCarousel(result);
-  await sendFlexMessage(userId, carousel, `[${result.hospital.hos_abbr || result.hospital.hos_name}] 분석 완료`);
-
-  logger.info(`Hospital carousel sent for ${hos_cd}|${hos_cso_cd}`);
-}
-
-/**
- * 약품 매출 조회
- */
-export async function handleDrugSearch(userId: string, drug_cd: string): Promise<void> {
-  logger.info(`Drug search: ${drug_cd} for user ${userId}`);
-
-  const result = await withDbRetry(
-    userId,
-    () => getDrugSales(drug_cd),
-    '약품 조회'
-  );
-
-  if (!result) return; // 에러 또는 데이터 없음
-
-  const carousel = createDrugCarousel(result);
-  await sendFlexMessage(userId, carousel, `[${result.drug.drug_name}] 분석 완료`);
-
-  logger.info(`Drug carousel sent for ${drug_cd}`);
-}
-
-/**
- * CSO 매출 조회
- */
-export async function handleCsoSearch(userId: string, cso_cd: string): Promise<void> {
-  logger.info(`CSO search: ${cso_cd} for user ${userId}`);
-
-  const result = await withDbRetry(
-    userId,
-    () => getCsoSales(cso_cd),
-    'CSO 조회'
-  );
-
-  if (!result) return; // 에러 또는 데이터 없음
-
-  const carousel = createCsoCarousel(result);
-  await sendFlexMessage(userId, carousel, `[${result.cso.cso_dealer_nm}] 분석 완료`);
-
-  logger.info(`CSO carousel sent for ${cso_cd}`);
 }

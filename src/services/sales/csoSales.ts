@@ -1,21 +1,26 @@
 /**
- * CSO 상세 매출 조회 서비스
+ * CSO 상세 매출 조회 서비스 (V2)
+ * Depth2 CSO 조회
  */
 
 import { getConnection } from '../database/connection';
 import sql from 'mssql';
 import { formatDrugName } from '../../utils/drugNameFormatter';
+import { formatSalesMoney } from '../../utils/numberFormatter';
+import { COLORS, LOGO_URL } from '../../utils/bubbleBuilder';
+import { getCurrentPeriod, PeriodInfo } from './periodService';
 import {
-  formatSalesMoney,
-  formatMonthlyTrend as formatTrend,
-  formatMonthlyAvg,
-  formatDrugMonthlyTrend
-} from '../../utils/numberFormatter';
-import {
-  COLORS,
-  LOGO_URL,
-  createDetailBubble
-} from '../../utils/bubbleBuilder';
+  encodePostback,
+  createCsoHospitalPostback,
+  createCsoDrugPostback,
+} from '../../types/postback';
+
+// 버블당 최대 버튼 수
+const MAX_BUTTONS_PER_BUBBLE = 5;
+// 최대 병원 수
+const MAX_HOSPITALS = 20;
+// 최대 품목 수
+const MAX_DRUGS = 10;
 
 interface MonthlySalesData {
   sales_year: number;
@@ -30,13 +35,14 @@ interface HospitalSalesData {
   hos_name: string;
   hos_abbr: string | null;
   total_sales: number;
+  monthlySales?: number[];
 }
 
 interface DrugSalesData {
   drug_cd: string;
   drug_name: string;
   total_sales: number;
-  monthlySales: number[];  // 월별 매출 배열
+  monthlySales: number[];
 }
 
 interface CsoInfo {
@@ -60,11 +66,11 @@ export interface CsoSalesResult {
 }
 
 /**
- * CSO 상세 매출 조회
+ * CSO 상세 매출 조회 (V2)
  * @param cso_cd CSO 코드
- * @param requestedMonths 요청 기간 (3, 6, 12개월). 기본값 3
+ * @param period 기간 정보 (선택적)
  */
-export async function getCsoSales(cso_cd: string, requestedMonths: number = 3): Promise<CsoSalesResult | null> {
+export async function getCsoSales(cso_cd: string, period?: PeriodInfo): Promise<CsoSalesResult | null> {
   const pool = await getConnection();
 
   // CSO 기본 정보 조회
@@ -82,33 +88,20 @@ export async function getCsoSales(cso_cd: string, requestedMonths: number = 3): 
 
   const cso = csoInfoResult.recordset[0] as CsoInfo;
 
-  // 데이터 범위 확인
-  const dataRangeResult = await pool.request()
-    .input('cso_cd', sql.NVarChar, cso_cd)
-    .query(`
-      SELECT MIN(sales_index) AS min_index, MAX(sales_index) AS max_index
-      FROM V_CSO_MONTHLY_SALES_byClaude
-      WHERE cso_cd = @cso_cd
-    `);
-
-  const dataRange = dataRangeResult.recordset[0];
-  if (!dataRange.max_index) {
-    return null;
-  }
-
-  // 요청된 기간만큼 조회 (실제 데이터 범위 내에서)
-  const endIndex = dataRange.max_index;
-  const startIndex = Math.max(dataRange.min_index, endIndex - (requestedMonths - 1));
-  const periodMonths = endIndex - startIndex + 1;
-
-  const startYear = 2000 + Math.floor(startIndex / 12);
-  const startMonth = (startIndex % 12) + 1;
-  const endYear = 2000 + Math.floor(endIndex / 12);
-  const endMonth = (endIndex % 12) + 1;
-  const periodText = `${startYear}.${startMonth} ~ ${endYear}.${endMonth}`;
+  // 기간 정보 (없으면 현재 기간 조회)
+  const periodInfo = period || await getCurrentPeriod(3);
+  const { startIndex, endIndex, periodText, periodMonths } = periodInfo;
 
   // 병렬 쿼리 실행
-  const [monthlyResult, hospitalResult, drugResult, drugMonthlyResult, summaryResult] = await Promise.all([
+  const [
+    monthlyResult,
+    hospitalResult,
+    hospitalMonthlyResult,
+    drugResult,
+    drugMonthlyResult,
+    hospitalCountResult,
+    drugCountResult
+  ] = await Promise.all([
     // 월별 매출
     pool.request()
       .input('cso_cd', sql.NVarChar, cso_cd)
@@ -122,13 +115,14 @@ export async function getCsoSales(cso_cd: string, requestedMonths: number = 3): 
         ORDER BY sales_index
       `),
 
-    // TOP 병원
+    // TOP 병원 (최대 20개)
     pool.request()
       .input('cso_cd', sql.NVarChar, cso_cd)
       .input('startIndex', sql.Int, startIndex)
       .input('endIndex', sql.Int, endIndex)
+      .input('limit', sql.Int, MAX_HOSPITALS)
       .query(`
-        SELECT TOP 5
+        SELECT TOP (@limit)
           ch.hos_cd, ch.hos_cso_cd,
           h.hos_name, h.hos_abbr,
           SUM(ch.total_sales) AS total_sales
@@ -140,13 +134,36 @@ export async function getCsoSales(cso_cd: string, requestedMonths: number = 3): 
         ORDER BY SUM(ch.total_sales) DESC
       `),
 
-    // TOP 품목 (총합)
+    // TOP 병원별 월별 매출 (트렌드용)
     pool.request()
       .input('cso_cd', sql.NVarChar, cso_cd)
       .input('startIndex', sql.Int, startIndex)
       .input('endIndex', sql.Int, endIndex)
+      .input('limit', sql.Int, MAX_HOSPITALS)
       .query(`
-        SELECT TOP 5
+        SELECT ch.hos_cd, ch.hos_cso_cd, ch.sales_index, ch.total_sales
+        FROM V_CSO_HOSPITAL_MONTHLY_byClaude ch
+        WHERE ch.cso_cd = @cso_cd
+          AND ch.sales_index BETWEEN @startIndex AND @endIndex
+          AND ch.hos_cd + '|' + ch.hos_cso_cd IN (
+            SELECT TOP (@limit) hos_cd + '|' + hos_cso_cd
+            FROM V_CSO_HOSPITAL_MONTHLY_byClaude
+            WHERE cso_cd = @cso_cd
+              AND sales_index BETWEEN @startIndex AND @endIndex
+            GROUP BY hos_cd, hos_cso_cd
+            ORDER BY SUM(total_sales) DESC
+          )
+        ORDER BY ch.hos_cd, ch.hos_cso_cd, ch.sales_index
+      `),
+
+    // TOP 품목 (최대 10개)
+    pool.request()
+      .input('cso_cd', sql.NVarChar, cso_cd)
+      .input('startIndex', sql.Int, startIndex)
+      .input('endIndex', sql.Int, endIndex)
+      .input('limit', sql.Int, MAX_DRUGS)
+      .query(`
+        SELECT TOP (@limit)
           cd.drug_cd, cd.drug_name,
           SUM(cd.total_sales) AS total_sales
         FROM V_CSO_DRUG_MONTHLY_byClaude cd
@@ -156,18 +173,19 @@ export async function getCsoSales(cso_cd: string, requestedMonths: number = 3): 
         ORDER BY SUM(cd.total_sales) DESC
       `),
 
-    // TOP 5 품목별 월별 매출
+    // TOP 품목별 월별 매출
     pool.request()
       .input('cso_cd', sql.NVarChar, cso_cd)
       .input('startIndex', sql.Int, startIndex)
       .input('endIndex', sql.Int, endIndex)
+      .input('limit', sql.Int, MAX_DRUGS)
       .query(`
         SELECT cd.drug_cd, cd.drug_name, cd.sales_index, cd.total_sales
         FROM V_CSO_DRUG_MONTHLY_byClaude cd
         WHERE cd.cso_cd = @cso_cd
           AND cd.sales_index BETWEEN @startIndex AND @endIndex
           AND cd.drug_cd IN (
-            SELECT TOP 5 drug_cd
+            SELECT TOP (@limit) drug_cd
             FROM V_CSO_DRUG_MONTHLY_byClaude
             WHERE cso_cd = @cso_cd
               AND sales_index BETWEEN @startIndex AND @endIndex
@@ -177,30 +195,65 @@ export async function getCsoSales(cso_cd: string, requestedMonths: number = 3): 
         ORDER BY cd.drug_cd, cd.sales_index
       `),
 
-    // 요약
+    // 요약 - 병원 수
     pool.request()
       .input('cso_cd', sql.NVarChar, cso_cd)
       .input('startIndex', sql.Int, startIndex)
       .input('endIndex', sql.Int, endIndex)
       .query(`
-        SELECT
-          COUNT(DISTINCT hos_cd + hos_cso_cd) AS hospital_count,
-          COUNT(DISTINCT drug_cd) AS drug_count
+        SELECT COUNT(DISTINCT hos_cd + hos_cso_cd) AS hospital_count
         FROM V_CSO_HOSPITAL_MONTHLY_byClaude
+        WHERE cso_cd = @cso_cd
+          AND sales_index BETWEEN @startIndex AND @endIndex
+      `),
+
+    // 요약 - 품목 수
+    pool.request()
+      .input('cso_cd', sql.NVarChar, cso_cd)
+      .input('startIndex', sql.Int, startIndex)
+      .input('endIndex', sql.Int, endIndex)
+      .query(`
+        SELECT COUNT(DISTINCT drug_cd) AS drug_count
+        FROM V_CSO_DRUG_MONTHLY_byClaude
         WHERE cso_cd = @cso_cd
           AND sales_index BETWEEN @startIndex AND @endIndex
       `)
   ]);
 
   const monthlySales = monthlyResult.recordset as MonthlySalesData[];
-  const topHospitals = hospitalResult.recordset as HospitalSalesData[];
-  const summaryData = summaryResult.recordset[0];
+  const hospitalCountData = hospitalCountResult.recordset[0];
+  const drugCountData = drugCountResult.recordset[0];
+
+  // 병원별 월별 매출 데이터 조합
+  const hospitalTotals = hospitalResult.recordset as HospitalSalesData[];
+  const hospitalMonthlyData = hospitalMonthlyResult.recordset as {
+    hos_cd: string;
+    hos_cso_cd: string;
+    sales_index: number;
+    total_sales: number;
+  }[];
+
+  const topHospitals: HospitalSalesData[] = hospitalTotals.map(hospital => {
+    const monthlyData = hospitalMonthlyData
+      .filter(h => h.hos_cd === hospital.hos_cd && h.hos_cso_cd === hospital.hos_cso_cd)
+      .sort((a, b) => a.sales_index - b.sales_index)
+      .map(h => h.total_sales);
+
+    return {
+      ...hospital,
+      monthlySales: monthlyData
+    };
+  });
 
   // 품목별 월별 매출 데이터 조합
   const drugTotals = drugResult.recordset as { drug_cd: string; drug_name: string; total_sales: number }[];
-  const drugMonthlyData = drugMonthlyResult.recordset as { drug_cd: string; drug_name: string; sales_index: number; total_sales: number }[];
+  const drugMonthlyData = drugMonthlyResult.recordset as {
+    drug_cd: string;
+    drug_name: string;
+    sales_index: number;
+    total_sales: number;
+  }[];
 
-  // drug_cd별로 월별 매출 배열 생성
   const topDrugs: DrugSalesData[] = drugTotals.map(drug => {
     const monthlyData = drugMonthlyData
       .filter(d => d.drug_cd === drug.drug_cd)
@@ -221,8 +274,8 @@ export async function getCsoSales(cso_cd: string, requestedMonths: number = 3): 
     cso,
     summary: {
       total_sales: totalSales,
-      hospital_count: summaryData?.hospital_count || 0,
-      drug_count: summaryData?.drug_count || 0
+      hospital_count: hospitalCountData?.hospital_count || 0,
+      drug_count: drugCountData?.drug_count || 0
     },
     monthlySales,
     topHospitals,
@@ -232,86 +285,63 @@ export async function getCsoSales(cso_cd: string, requestedMonths: number = 3): 
   };
 }
 
-// MonthlySalesData 배열을 숫자 배열로 변환하여 포맷팅
-function formatMonthlyTrend(monthlySales: MonthlySalesData[]): string {
-  return formatTrend(monthlySales.map(m => m.total_sales));
-}
-
 /**
- * CSO 상세 캐러셀 생성
+ * CSO Depth2 캐러셀 생성 (V2)
+ * - 요약 버블
+ * - 주요병원별 매출 버블 (최대 4개, 버블당 5개 버튼)
+ * - 주요품목별 매출 버블 (최대 2개)
  */
 export function createCsoCarousel(result: CsoSalesResult): any {
   const { cso, summary, monthlySales, topHospitals, topDrugs, periodMonths, periodText } = result;
   const monthlyAvg = summary.total_sales / periodMonths;
-  const trendText = formatMonthlyTrend(monthlySales);
+  const trendText = monthlySales.map(m => formatSalesMoney(m.total_sales)).join(' > ');
 
-  // 제목 (딜러명 + 법인명)
   const csoTitle = cso.cso_corp_nm
     ? `${cso.cso_dealer_nm} (${cso.cso_corp_nm})`
     : cso.cso_dealer_nm;
 
-  // 병원별 매출 컨텐츠
-  const hospitalContents: any[] = topHospitals.map((hospital, index) => ({
-    type: 'box',
-    layout: 'horizontal',
-    contents: [
-      {
-        type: 'text',
-        text: `${index + 1}. ${hospital.hos_abbr || hospital.hos_name}`,
-        size: 'xs',
-        color: COLORS.subtext,
-        flex: 3,
-        wrap: true
-      },
-      {
-        type: 'text',
-        text: formatSalesMoney(hospital.total_sales),
-        size: 'xs',
-        weight: 'bold',
-        color: COLORS.text,
-        align: 'end',
-        flex: 2
-      }
-    ],
-    margin: 'md'
-  }));
+  const bubbles: any[] = [];
 
-  // 품목별 매출 컨텐츠 (새 포맷: 품목명 + 월별추이 + 월평균)
-  const drugContents: any[] = topDrugs.map((drug) => ({
-    type: 'box',
-    layout: 'vertical',
-    contents: [
-      // 1행: 품목명 (텍스트 정리 적용)
-      { type: 'text', text: formatDrugName(drug.drug_name), size: 'sm', color: COLORS.text, weight: 'bold', wrap: true },
-      // 2행: (월별 추이)         월평균
-      {
-        type: 'box',
-        layout: 'horizontal',
-        contents: [
-          { type: 'text', text: `( ${formatDrugMonthlyTrend(drug.monthlySales)} )`, size: 'xs', color: COLORS.subtext, flex: 3 },
-          { type: 'text', text: formatMonthlyAvg(drug.monthlySales), size: 'xs', weight: 'bold', color: COLORS.text, align: 'end', flex: 1 }
-        ],
-        margin: 'sm'
-      }
-    ],
-    margin: 'lg'
-  }));
+  // 1. 요약 버블
+  bubbles.push(createSummaryBubble(cso, csoTitle, summary, monthlyAvg, trendText, periodText, periodMonths));
 
-  // 메인 버블
-  const mainBubble = {
+  // 2. 주요병원별 매출 버블들 (버블당 5개 버튼, 최대 4개 버블)
+  if (topHospitals.length > 0) {
+    const hospitalBubbles = createHospitalBubbles(cso.cso_cd, topHospitals, periodText);
+    bubbles.push(...hospitalBubbles);
+  }
+
+  // 3. 주요품목별 매출 버블들 (버블당 5개 버튼, 최대 2개 버블)
+  if (topDrugs.length > 0) {
+    const drugBubbles = createDrugBubbles(cso.cso_cd, topDrugs, periodText);
+    bubbles.push(...drugBubbles);
+  }
+
+  return {
+    type: 'carousel',
+    contents: bubbles
+  };
+}
+
+/**
+ * 요약 버블 생성
+ */
+function createSummaryBubble(
+  _cso: CsoInfo,
+  csoTitle: string,
+  summary: CsoSalesResult['summary'],
+  monthlyAvg: number,
+  trendText: string,
+  periodText: string,
+  _periodMonths: number
+): any {
+  return {
     type: 'bubble',
     header: {
       type: 'box',
       layout: 'vertical',
       contents: [
-        {
-          type: 'text',
-          text: 'AJUBIO',
-          size: 'sm',
-          weight: 'bold',
-          color: COLORS.white,
-          align: 'center'
-        }
+        { type: 'text', text: 'AJUBIO', size: 'sm', weight: 'bold', color: COLORS.white, align: 'center' }
       ],
       backgroundColor: COLORS.darkNavy,
       paddingAll: '8px'
@@ -320,39 +350,14 @@ export function createCsoCarousel(result: CsoSalesResult): any {
       type: 'box',
       layout: 'vertical',
       contents: [
-        {
-          type: 'image',
-          url: LOGO_URL,
-          aspectRatio: '5:3',
-          size: 'sm',
-          aspectMode: 'fit'
-        },
+        { type: 'image', url: LOGO_URL, aspectRatio: '5:3', size: 'sm', aspectMode: 'fit' },
         {
           type: 'box',
           layout: 'vertical',
           contents: [
-            {
-              type: 'text',
-              text: csoTitle,
-              size: 'md',
-              color: COLORS.text,
-              weight: 'bold',
-              align: 'center',
-              wrap: true
-            },
-            {
-              type: 'text',
-              text: `${periodText} (${periodMonths}개월)`,
-              size: 'xs',
-              color: COLORS.lightGray,
-              align: 'center',
-              margin: 'sm'
-            },
-            {
-              type: 'separator',
-              margin: 'md',
-              color: COLORS.border
-            },
+            { type: 'text', text: csoTitle, size: 'md', color: COLORS.text, weight: 'bold', align: 'center', wrap: true },
+            { type: 'text', text: `조회기간: ${periodText}`, size: 'xs', color: COLORS.lightGray, align: 'center', margin: 'sm' },
+            { type: 'separator', margin: 'md', color: COLORS.border },
             {
               type: 'box',
               layout: 'horizontal',
@@ -362,25 +367,14 @@ export function createCsoCarousel(result: CsoSalesResult): any {
               ],
               margin: 'md'
             },
-            {
-              type: 'text',
-              text: `(${trendText})`,
-              size: 'xs',
-              color: COLORS.subtext,
-              align: 'end',
-              margin: 'sm'
-            },
-            {
-              type: 'separator',
-              margin: 'md',
-              color: COLORS.border
-            },
+            { type: 'text', text: `(${trendText})`, size: 'xxs', color: COLORS.subtext, align: 'end', margin: 'sm' },
+            { type: 'separator', margin: 'md', color: COLORS.border },
             {
               type: 'box',
               layout: 'horizontal',
               contents: [
-                { type: 'text', text: '총 매출', size: 'sm', color: COLORS.subtext },
-                { type: 'text', text: formatSalesMoney(summary.total_sales), size: 'sm', weight: 'bold', color: COLORS.text, align: 'end' }
+                { type: 'text', text: '거래 병원', size: 'sm', color: COLORS.subtext },
+                { type: 'text', text: `${summary.hospital_count}개`, size: 'sm', weight: 'bold', color: COLORS.text, align: 'end' }
               ],
               margin: 'md'
             },
@@ -388,16 +382,7 @@ export function createCsoCarousel(result: CsoSalesResult): any {
               type: 'box',
               layout: 'horizontal',
               contents: [
-                { type: 'text', text: '거래 병원 수', size: 'sm', color: COLORS.subtext },
-                { type: 'text', text: `${summary.hospital_count}개`, size: 'sm', weight: 'bold', color: COLORS.text, align: 'end' }
-              ],
-              margin: 'sm'
-            },
-            {
-              type: 'box',
-              layout: 'horizontal',
-              contents: [
-                { type: 'text', text: '거래 품목 수', size: 'sm', color: COLORS.subtext },
+                { type: 'text', text: '거래 품목', size: 'sm', color: COLORS.subtext },
                 { type: 'text', text: `${summary.drug_count}개`, size: 'sm', weight: 'bold', color: COLORS.text, align: 'end' }
               ],
               margin: 'sm'
@@ -414,384 +399,223 @@ export function createCsoCarousel(result: CsoSalesResult): any {
     },
     footer: {
       type: 'box',
-      layout: 'horizontal',
-      contents: [
-        {
-          type: 'button',
-          action: {
-            type: 'postback',
-            label: '6개월 보기',
-            data: JSON.stringify({
-              action: 'cso_period',
-              period_months: 6,
-              context: { cso_cd: cso.cso_cd }
-            })
-          },
-          style: 'primary',
-          height: 'sm',
-          color: COLORS.navy
-        },
-        {
-          type: 'button',
-          action: {
-            type: 'postback',
-            label: '1년 보기',
-            data: JSON.stringify({
-              action: 'cso_period',
-              period_months: 12,
-              context: { cso_cd: cso.cso_cd }
-            })
-          },
-          style: 'primary',
-          height: 'sm',
-          color: COLORS.navy
-        }
-      ],
-      spacing: 'sm',
+      layout: 'vertical',
+      contents: [{ type: 'text', text: ' ', size: 'xxs', color: COLORS.white, align: 'center' }],
       backgroundColor: COLORS.darkNavy,
-      paddingAll: '8px'
+      paddingAll: '6px'
     }
-  };
-
-  // 병원 상세 버블 (공통 디자인 적용)
-  const hospitalBubble = createDetailBubble({
-    headerTitle: 'Top Hospitals',
-    subTitle: 'TOP 병원별 매출',
-    period: periodText,
-    bodyContents: hospitalContents.length > 0 ? hospitalContents : [
-      { type: 'text', text: '데이터가 없습니다', size: 'sm', color: COLORS.lightGray, align: 'center', margin: 'md' }
-    ]
-  });
-
-  // 품목 상세 버블 (공통 디자인 적용)
-  const drugBubble = createDetailBubble({
-    headerTitle: 'Best Sales Drugs',
-    subTitle: 'TOP 품목별 매출',
-    period: periodText,
-    bodyContents: drugContents.length > 0 ? drugContents : [
-      { type: 'text', text: '데이터가 없습니다', size: 'sm', color: COLORS.lightGray, align: 'center', margin: 'md' }
-    ]
-  });
-
-  return {
-    type: 'carousel',
-    contents: [mainBubble, hospitalBubble, drugBubble]
   };
 }
 
 /**
- * CSO 상세 캐러셀 생성 (6개월/1년용)
- * - 6개월: 품목별로 6개월 추이 + 평균
- * - 1년: 품목별로 시작매출 → 최근매출 (기간 표시) + 평균
+ * 주요병원별 매출 버블들 생성
  */
-export function createCsoPeriodCarousel(result: CsoSalesResult): any {
-  const { cso, summary, monthlySales, topHospitals, topDrugs, periodMonths, periodText } = result;
-  const monthlyAvg = summary.total_sales / periodMonths;
+function createHospitalBubbles(cso_cd: string, hospitals: HospitalSalesData[], periodText: string): any[] {
+  const bubbles: any[] = [];
+  const totalBubbles = Math.ceil(hospitals.length / MAX_BUTTONS_PER_BUBBLE);
 
-  // 제목 (딜러명 + 법인명)
-  const csoTitle = cso.cso_corp_nm
-    ? `${cso.cso_dealer_nm} (${cso.cso_corp_nm})`
-    : cso.cso_dealer_nm;
+  for (let i = 0; i < hospitals.length; i += MAX_BUTTONS_PER_BUBBLE) {
+    const chunk = hospitals.slice(i, i + MAX_BUTTONS_PER_BUBBLE);
+    const bubbleIndex = Math.floor(i / MAX_BUTTONS_PER_BUBBLE) + 1;
 
-  // 6개월용 품목별 컨텐츠
-  const createDrug6MonthContents = (drugs: DrugSalesData[]) => {
-    return drugs.map((drug) => ({
-      type: 'box',
-      layout: 'vertical',
-      contents: [
-        // 1행: 품목명 + 평균
-        {
-          type: 'box',
-          layout: 'horizontal',
-          contents: [
-            { type: 'text', text: formatDrugName(drug.drug_name), size: 'sm', color: COLORS.text, weight: 'bold', flex: 3, wrap: true },
-            { type: 'text', text: formatMonthlyAvg(drug.monthlySales), size: 'sm', weight: 'bold', color: COLORS.text, align: 'end', flex: 1 }
-          ]
+    const title = totalBubbles > 1
+      ? `주요 병원 (${bubbleIndex}/${totalBubbles})`
+      : '주요 병원';
+
+    const buttons = chunk.map((hospital, index) => {
+      const label = hospital.hos_abbr || hospital.hos_name;
+      const displayLabel = label.length > 15 ? label.slice(0, 13) + '..' : label;
+      const postback = createCsoHospitalPostback(cso_cd, hospital.hos_cd, hospital.hos_cso_cd);
+
+      return {
+        type: 'button',
+        action: {
+          type: 'postback',
+          label: `${displayLabel}`,
+          data: encodePostback(postback),
         },
-        // 2행: 월별 추이
-        {
-          type: 'text',
-          text: formatDrugMonthlyTrend(drug.monthlySales),
-          size: 'xs',
-          color: COLORS.subtext,
-          margin: 'sm'
-        }
-      ],
-      margin: 'lg'
-    }));
-  };
+        style: index % 2 === 0 ? 'primary' : 'secondary',
+        height: 'sm',
+        color: index % 2 === 0 ? COLORS.navy : COLORS.lightBlue,
+        margin: 'sm',
+      };
+    });
 
-  // 1년용 품목별 컨텐츠
-  const createDrug12MonthContents = (drugs: DrugSalesData[]) => {
-    return drugs.map((drug) => {
-      const sales = drug.monthlySales;
-      const hasData = sales.length > 0;
-      const firstSales = hasData ? sales[0] : 0;
-      const lastSales = hasData ? sales[sales.length - 1] : 0;
+    // 병원 버블에 트렌드 정보 추가
+    const hospitalInfoRows = chunk.map(hospital => {
+      const trendText = hospital.monthlySales && hospital.monthlySales.length > 0
+        ? hospital.monthlySales.map(s => formatSalesMoney(s)).join(' > ')
+        : '';
+      const monthlyAvg = hospital.monthlySales && hospital.monthlySales.length > 0
+        ? hospital.monthlySales.reduce((a, b) => a + b, 0) / hospital.monthlySales.length
+        : hospital.total_sales / 3;
 
       return {
         type: 'box',
         layout: 'vertical',
         contents: [
-          // 1행: 품목명 + 평균
           {
             type: 'box',
             layout: 'horizontal',
             contents: [
-              { type: 'text', text: formatDrugName(drug.drug_name), size: 'sm', color: COLORS.text, weight: 'bold', flex: 3, wrap: true },
-              { type: 'text', text: formatMonthlyAvg(drug.monthlySales), size: 'sm', weight: 'bold', color: COLORS.text, align: 'end', flex: 1 }
+              { type: 'text', text: hospital.hos_abbr || hospital.hos_name, size: 'xs', color: COLORS.text, flex: 3, wrap: true },
+              { type: 'text', text: formatSalesMoney(monthlyAvg), size: 'xs', weight: 'bold', color: COLORS.navy, align: 'end', flex: 2 }
             ]
           },
-          // 2행: 시작매출 → 최근매출
-          {
-            type: 'text',
-            text: hasData
-              ? `${Math.round(firstSales / 1000000)} → ${Math.round(lastSales / 1000000)} (${sales.length}개월)`
-              : '데이터 없음',
-            size: 'xs',
-            color: COLORS.subtext,
-            margin: 'sm'
-          }
+          { type: 'text', text: `(${trendText})`, size: 'xxs', color: COLORS.lightGray, margin: 'xs' }
         ],
-        margin: 'lg'
+        margin: 'md'
       };
     });
-  };
 
-  // 기간에 따라 다른 컨텐츠 생성
-  const drugContents = periodMonths <= 6
-    ? createDrug6MonthContents(topDrugs)
-    : createDrug12MonthContents(topDrugs);
-
-  // 병원별 매출 컨텐츠
-  const hospitalContents: any[] = topHospitals.map((hospital, index) => ({
-    type: 'box',
-    layout: 'horizontal',
-    contents: [
-      {
-        type: 'text',
-        text: `${index + 1}. ${hospital.hos_abbr || hospital.hos_name}`,
-        size: 'xs',
-        color: COLORS.subtext,
-        flex: 3,
-        wrap: true
+    bubbles.push({
+      type: 'bubble',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [{ type: 'text', text: 'AJUBIO', size: 'sm', weight: 'bold', color: COLORS.white, align: 'center' }],
+        backgroundColor: COLORS.darkNavy,
+        paddingAll: '8px'
       },
-      {
-        type: 'text',
-        text: formatSalesMoney(hospital.total_sales),
-        size: 'xs',
-        weight: 'bold',
-        color: COLORS.text,
-        align: 'end',
-        flex: 2
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'box',
+            layout: 'vertical',
+            contents: [
+              { type: 'text', text: title, size: 'md', color: COLORS.text, weight: 'bold', align: 'center' },
+              { type: 'text', text: periodText, size: 'xxs', color: COLORS.lightGray, align: 'center', margin: 'xs' },
+              { type: 'separator', margin: 'md', color: COLORS.border },
+              ...hospitalInfoRows,
+              { type: 'separator', margin: 'md', color: COLORS.border },
+              { type: 'box', layout: 'vertical', contents: buttons, margin: 'md' }
+            ],
+            backgroundColor: COLORS.white,
+            cornerRadius: '12px',
+            paddingAll: '16px'
+          }
+        ],
+        backgroundColor: COLORS.background,
+        paddingAll: '12px'
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [{ type: 'text', text: ' ', size: 'xxs', color: COLORS.white, align: 'center' }],
+        backgroundColor: COLORS.darkNavy,
+        paddingAll: '6px'
       }
-    ],
-    margin: 'md'
-  }));
+    });
+  }
 
-  // 메인 버블
-  const mainBubble = {
-    type: 'bubble',
-    header: {
-      type: 'box',
-      layout: 'vertical',
-      contents: [
-        {
-          type: 'text',
-          text: 'AJUBIO',
-          size: 'sm',
-          weight: 'bold',
-          color: COLORS.white,
-          align: 'center'
-        }
-      ],
-      backgroundColor: COLORS.darkNavy,
-      paddingAll: '8px'
-    },
-    body: {
-      type: 'box',
-      layout: 'vertical',
-      contents: [
-        {
-          type: 'image',
-          url: LOGO_URL,
-          aspectRatio: '5:3',
-          size: 'sm',
-          aspectMode: 'fit'
+  return bubbles;
+}
+
+/**
+ * 주요품목별 매출 버블들 생성
+ */
+function createDrugBubbles(cso_cd: string, drugs: DrugSalesData[], periodText: string): any[] {
+  const bubbles: any[] = [];
+  const totalBubbles = Math.ceil(drugs.length / MAX_BUTTONS_PER_BUBBLE);
+
+  for (let i = 0; i < drugs.length; i += MAX_BUTTONS_PER_BUBBLE) {
+    const chunk = drugs.slice(i, i + MAX_BUTTONS_PER_BUBBLE);
+    const bubbleIndex = Math.floor(i / MAX_BUTTONS_PER_BUBBLE) + 1;
+
+    const title = totalBubbles > 1
+      ? `주요 품목 (${bubbleIndex}/${totalBubbles})`
+      : '주요 품목';
+
+    const buttons = chunk.map((drug, index) => {
+      const label = formatDrugName(drug.drug_name);
+      const displayLabel = label.length > 15 ? label.slice(0, 13) + '..' : label;
+
+      const postback = createCsoDrugPostback(cso_cd, drug.drug_cd);
+
+      return {
+        type: 'button',
+        action: {
+          type: 'postback',
+          label: displayLabel,
+          data: encodePostback(postback),
         },
-        {
-          type: 'box',
-          layout: 'vertical',
-          contents: [
-            {
-              type: 'text',
-              text: csoTitle,
-              size: 'md',
-              color: COLORS.text,
-              weight: 'bold',
-              align: 'center',
-              wrap: true
-            },
-            {
-              type: 'text',
-              text: `${periodText} (${periodMonths}개월)`,
-              size: 'xs',
-              color: COLORS.lightGray,
-              align: 'center',
-              margin: 'sm'
-            },
-            {
-              type: 'separator',
-              margin: 'md',
-              color: COLORS.border
-            },
-            {
-              type: 'box',
-              layout: 'horizontal',
-              contents: [
-                { type: 'text', text: '월평균 매출', size: 'sm', color: COLORS.subtext },
-                { type: 'text', text: formatSalesMoney(monthlyAvg), size: 'lg', weight: 'bold', color: COLORS.text, align: 'end' }
-              ],
-              margin: 'md'
-            },
-            {
-              type: 'separator',
-              margin: 'md',
-              color: COLORS.border
-            },
-            {
-              type: 'box',
-              layout: 'horizontal',
-              contents: [
-                { type: 'text', text: '총 매출', size: 'sm', color: COLORS.subtext },
-                { type: 'text', text: formatSalesMoney(summary.total_sales), size: 'sm', weight: 'bold', color: COLORS.text, align: 'end' }
-              ],
-              margin: 'md'
-            },
-            {
-              type: 'box',
-              layout: 'horizontal',
-              contents: [
-                { type: 'text', text: '거래 병원 수', size: 'sm', color: COLORS.subtext },
-                { type: 'text', text: `${summary.hospital_count}개`, size: 'sm', weight: 'bold', color: COLORS.text, align: 'end' }
-              ],
-              margin: 'sm'
-            },
-            {
-              type: 'box',
-              layout: 'horizontal',
-              contents: [
-                { type: 'text', text: '거래 품목 수', size: 'sm', color: COLORS.subtext },
-                { type: 'text', text: `${summary.drug_count}개`, size: 'sm', weight: 'bold', color: COLORS.text, align: 'end' }
-              ],
-              margin: 'sm'
-            }
-          ],
-          backgroundColor: COLORS.white,
-          cornerRadius: '12px',
-          paddingAll: '16px',
-          margin: 'md'
-        }
-      ],
-      backgroundColor: COLORS.background,
-      paddingAll: '12px'
-    },
-    footer: {
-      type: 'box',
-      layout: 'horizontal',
-      contents: periodMonths === 6
-        ? [
-            {
-              type: 'button',
-              action: {
-                type: 'postback',
-                label: '3개월 보기',
-                data: JSON.stringify({
-                  action: 'cso_period',
-                  period_months: 3,
-                  context: { cso_cd: cso.cso_cd }
-                })
-              },
-              style: 'primary',
-              height: 'sm',
-              color: COLORS.navy
-            },
-            {
-              type: 'button',
-              action: {
-                type: 'postback',
-                label: '1년 보기',
-                data: JSON.stringify({
-                  action: 'cso_period',
-                  period_months: 12,
-                  context: { cso_cd: cso.cso_cd }
-                })
-              },
-              style: 'primary',
-              height: 'sm',
-              color: COLORS.navy
-            }
-          ]
-        : [
-            {
-              type: 'button',
-              action: {
-                type: 'postback',
-                label: '3개월 보기',
-                data: JSON.stringify({
-                  action: 'cso_period',
-                  period_months: 3,
-                  context: { cso_cd: cso.cso_cd }
-                })
-              },
-              style: 'primary',
-              height: 'sm',
-              color: COLORS.navy
-            },
-            {
-              type: 'button',
-              action: {
-                type: 'postback',
-                label: '6개월 보기',
-                data: JSON.stringify({
-                  action: 'cso_period',
-                  period_months: 6,
-                  context: { cso_cd: cso.cso_cd }
-                })
-              },
-              style: 'primary',
-              height: 'sm',
-              color: COLORS.navy
-            }
-          ],
-      spacing: 'sm',
-      backgroundColor: COLORS.darkNavy,
-      paddingAll: '8px'
-    }
-  };
+        style: index % 2 === 0 ? 'primary' : 'secondary',
+        height: 'sm',
+        color: index % 2 === 0 ? COLORS.navy : COLORS.lightBlue,
+        margin: 'sm',
+      };
+    });
 
-  // 병원 상세 버블 (공통 디자인 적용)
-  const hospitalBubble = createDetailBubble({
-    headerTitle: 'Top Hospitals',
-    subTitle: `TOP 병원별 매출 (${periodMonths}개월)`,
-    period: periodText,
-    bodyContents: hospitalContents.length > 0 ? hospitalContents : [
-      { type: 'text', text: '데이터가 없습니다', size: 'sm', color: COLORS.lightGray, align: 'center', margin: 'md' }
-    ]
-  });
+    // 품목 정보 행
+    const drugInfoRows = chunk.map(drug => {
+      const trendText = drug.monthlySales.length > 0
+        ? drug.monthlySales.map(s => formatSalesMoney(s)).join(' > ')
+        : '';
+      const monthlyAvg = drug.monthlySales.length > 0
+        ? drug.monthlySales.reduce((a, b) => a + b, 0) / drug.monthlySales.length
+        : drug.total_sales / 3;
 
-  // 품목 상세 버블 (공통 디자인 적용)
-  const drugBubble = createDetailBubble({
-    headerTitle: 'Best Sales Drugs',
-    subTitle: `TOP 품목별 매출 (${periodMonths}개월)`,
-    period: periodText,
-    bodyContents: drugContents.length > 0 ? drugContents : [
-      { type: 'text', text: '데이터가 없습니다', size: 'sm', color: COLORS.lightGray, align: 'center', margin: 'md' }
-    ]
-  });
+      return {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'box',
+            layout: 'horizontal',
+            contents: [
+              { type: 'text', text: formatDrugName(drug.drug_name), size: 'xs', color: COLORS.text, flex: 3, wrap: true },
+              { type: 'text', text: formatSalesMoney(monthlyAvg), size: 'xs', weight: 'bold', color: COLORS.navy, align: 'end', flex: 2 }
+            ]
+          },
+          { type: 'text', text: `(${trendText})`, size: 'xxs', color: COLORS.lightGray, margin: 'xs' }
+        ],
+        margin: 'md'
+      };
+    });
 
-  return {
-    type: 'carousel',
-    contents: [mainBubble, hospitalBubble, drugBubble]
-  };
+    bubbles.push({
+      type: 'bubble',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [{ type: 'text', text: 'AJUBIO', size: 'sm', weight: 'bold', color: COLORS.white, align: 'center' }],
+        backgroundColor: COLORS.darkNavy,
+        paddingAll: '8px'
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'box',
+            layout: 'vertical',
+            contents: [
+              { type: 'text', text: title, size: 'md', color: COLORS.text, weight: 'bold', align: 'center' },
+              { type: 'text', text: periodText, size: 'xxs', color: COLORS.lightGray, align: 'center', margin: 'xs' },
+              { type: 'separator', margin: 'md', color: COLORS.border },
+              ...drugInfoRows,
+              { type: 'separator', margin: 'md', color: COLORS.border },
+              { type: 'box', layout: 'vertical', contents: buttons, margin: 'md' }
+            ],
+            backgroundColor: COLORS.white,
+            cornerRadius: '12px',
+            paddingAll: '16px'
+          }
+        ],
+        backgroundColor: COLORS.background,
+        paddingAll: '12px'
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [{ type: 'text', text: ' ', size: 'xxs', color: COLORS.white, align: 'center' }],
+        backgroundColor: COLORS.darkNavy,
+        paddingAll: '6px'
+      }
+    });
+  }
+
+  return bubbles;
 }
