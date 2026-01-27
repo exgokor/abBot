@@ -64,14 +64,29 @@ export function createFooter(): any {
 }
 
 /**
- * 버튼이 있는 푸터 생성
+ * 버튼이 있는 푸터 생성 (AJUBIO 포함)
  */
 export function createButtonFooter(buttons: any[]): any {
   return {
     type: 'box',
-    layout: 'horizontal',
-    contents: buttons,
-    spacing: 'sm',
+    layout: 'vertical',
+    contents: [
+      {
+        type: 'box',
+        layout: 'horizontal',
+        contents: buttons,
+        spacing: 'sm',
+      },
+      {
+        type: 'text',
+        text: 'AJUBIO',
+        size: 'xxs',
+        weight: 'bold',
+        color: COLORS.white,
+        align: 'center',
+        margin: 'sm',
+      },
+    ],
     backgroundColor: COLORS.darkNavy,
     paddingAll: '8px',
   };

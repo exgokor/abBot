@@ -13,7 +13,7 @@ import {
   getDrugCsoSales,
   createCompositeBubble
 } from '../services/sales/compositeService';
-import { decodePostback, PostbackData } from '../types/postback';
+import { decodePostback, PostbackData, parseDepth3Code, Depth3EntityType } from '../types/postback';
 import { getCurrentPeriod } from '../services/sales/periodService';
 import { withDbRetry } from '../utils/dbErrorHandler';
 
@@ -87,7 +87,7 @@ async function handleDepth2(
       const result = await withDbRetry(userId, () => getHospitalSales(hos_cd, hos_cso_cd, period), '병원 조회');
       if (result) {
         const hospitalName = result.hospital.hos_abbr || result.hospital.hos_name;
-        const carousel = createHospitalCarousel(result);
+        const carousel = await createHospitalCarousel(result);
         await sendFlexMessage(userId, carousel, `[${hospitalName}] 병원 조회`);
       }
       break;
@@ -117,10 +117,16 @@ async function handleDepth3(
   code: string,
   period: any
 ): Promise<void> {
+  // parseDepth3Code 헬퍼를 사용하여 코드 파싱
+  const entityType = type as Depth3EntityType;
+  const parsed = parseDepth3Code(entityType, code);
+
   switch (type) {
-    case 'CSO_HOSPITAL': {
-      // code: cso_cd|hos_cd|hos_cso_cd
-      const [cso_cd, hos_cd, hos_cso_cd] = code.split('|');
+    case 'CSO|HOSPITAL': {
+      // code: cso_cd||hos_cd|hos_cso_cd
+      const cso_cd = parsed.first;
+      const hos_cd = parsed.secondHosCd!;
+      const hos_cso_cd = parsed.secondHosCsoCd!;
       const result = await withDbRetry(
         userId,
         () => getCsoHospitalSales(cso_cd, hos_cd, hos_cso_cd, period),
@@ -133,9 +139,10 @@ async function handleDepth3(
       break;
     }
 
-    case 'CSO_DRUG': {
-      // code: cso_cd|drug_cd
-      const [cso_cd, drug_cd] = code.split('|');
+    case 'CSO|DRUG': {
+      // code: cso_cd||drug_cd
+      const cso_cd = parsed.first;
+      const drug_cd = parsed.second;
       const result = await withDbRetry(
         userId,
         () => getCsoDrugSales(cso_cd, drug_cd, period),
@@ -148,9 +155,11 @@ async function handleDepth3(
       break;
     }
 
-    case 'HOSPITAL_DRUG': {
-      // code: hos_cd|hos_cso_cd|drug_cd
-      const [hos_cd, hos_cso_cd, drug_cd] = code.split('|');
+    case 'HOSPITAL|DRUG': {
+      // code: hos_cd|hos_cso_cd||drug_cd
+      const hos_cd = parsed.firstHosCd!;
+      const hos_cso_cd = parsed.firstHosCsoCd!;
+      const drug_cd = parsed.second;
       const result = await withDbRetry(
         userId,
         () => getHospitalDrugSales(hos_cd, hos_cso_cd, drug_cd, period),
@@ -163,9 +172,11 @@ async function handleDepth3(
       break;
     }
 
-    case 'HOSPITAL_CSO': {
-      // code: hos_cd|hos_cso_cd|cso_cd
-      const [hos_cd, hos_cso_cd, cso_cd] = code.split('|');
+    case 'HOSPITAL|CSO': {
+      // code: hos_cd|hos_cso_cd||cso_cd
+      const hos_cd = parsed.firstHosCd!;
+      const hos_cso_cd = parsed.firstHosCsoCd!;
+      const cso_cd = parsed.second;
       const result = await withDbRetry(
         userId,
         () => getHospitalCsoSales(hos_cd, hos_cso_cd, cso_cd, period),
@@ -178,9 +189,11 @@ async function handleDepth3(
       break;
     }
 
-    case 'DRUG_HOSPITAL': {
-      // code: drug_cd|hos_cd|hos_cso_cd
-      const [drug_cd, hos_cd, hos_cso_cd] = code.split('|');
+    case 'DRUG|HOSPITAL': {
+      // code: drug_cd||hos_cd|hos_cso_cd
+      const drug_cd = parsed.first;
+      const hos_cd = parsed.secondHosCd!;
+      const hos_cso_cd = parsed.secondHosCsoCd!;
       const result = await withDbRetry(
         userId,
         () => getDrugHospitalSales(drug_cd, hos_cd, hos_cso_cd, period),
@@ -193,9 +206,10 @@ async function handleDepth3(
       break;
     }
 
-    case 'DRUG_CSO': {
-      // code: drug_cd|cso_cd
-      const [drug_cd, cso_cd] = code.split('|');
+    case 'DRUG|CSO': {
+      // code: drug_cd||cso_cd
+      const drug_cd = parsed.first;
+      const cso_cd = parsed.second;
       const result = await withDbRetry(
         userId,
         () => getDrugCsoSales(drug_cd, cso_cd, period),

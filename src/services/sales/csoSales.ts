@@ -296,24 +296,29 @@ export function createCsoCarousel(result: CsoSalesResult): any {
   const monthlyAvg = summary.total_sales / periodMonths;
   const trendText = monthlySales.map(m => formatSalesMoney(m.total_sales)).join(' > ');
 
-  const csoTitle = cso.cso_corp_nm
+  // 헤더용 타이틀: 협력사명-딜러명
+  const csoHeaderTitle = cso.cso_corp_nm
+    ? `${cso.cso_corp_nm}-${cso.cso_dealer_nm}`
+    : cso.cso_dealer_nm;
+  // 본문용 타이틀: 딜러명 (협력사명)
+  const csoBodyTitle = cso.cso_corp_nm
     ? `${cso.cso_dealer_nm} (${cso.cso_corp_nm})`
     : cso.cso_dealer_nm;
 
   const bubbles: any[] = [];
 
   // 1. 요약 버블
-  bubbles.push(createSummaryBubble(cso, csoTitle, summary, monthlyAvg, trendText, periodText, periodMonths));
+  bubbles.push(createSummaryBubble(cso, csoHeaderTitle, csoBodyTitle, summary, monthlyAvg, trendText, periodText, periodMonths));
 
   // 2. 주요병원별 매출 버블들 (버블당 5개 버튼, 최대 4개 버블)
   if (topHospitals.length > 0) {
-    const hospitalBubbles = createHospitalBubbles(cso.cso_cd, topHospitals, periodText);
+    const hospitalBubbles = createHospitalBubbles(cso.cso_cd, topHospitals, periodText, csoHeaderTitle);
     bubbles.push(...hospitalBubbles);
   }
 
   // 3. 주요품목별 매출 버블들 (버블당 5개 버튼, 최대 2개 버블)
   if (topDrugs.length > 0) {
-    const drugBubbles = createDrugBubbles(cso.cso_cd, topDrugs, periodText);
+    const drugBubbles = createDrugBubbles(cso.cso_cd, topDrugs, periodText, csoHeaderTitle);
     bubbles.push(...drugBubbles);
   }
 
@@ -328,7 +333,8 @@ export function createCsoCarousel(result: CsoSalesResult): any {
  */
 function createSummaryBubble(
   _cso: CsoInfo,
-  csoTitle: string,
+  csoHeaderTitle: string,
+  csoBodyTitle: string,
   summary: CsoSalesResult['summary'],
   monthlyAvg: number,
   trendText: string,
@@ -341,7 +347,7 @@ function createSummaryBubble(
       type: 'box',
       layout: 'vertical',
       contents: [
-        { type: 'text', text: 'AJUBIO', size: 'sm', weight: 'bold', color: COLORS.white, align: 'center' }
+        { type: 'text', text: csoHeaderTitle, size: 'sm', weight: 'bold', color: COLORS.white, align: 'center' }
       ],
       backgroundColor: COLORS.darkNavy,
       paddingAll: '8px'
@@ -355,7 +361,7 @@ function createSummaryBubble(
           type: 'box',
           layout: 'vertical',
           contents: [
-            { type: 'text', text: csoTitle, size: 'md', color: COLORS.text, weight: 'bold', align: 'center', wrap: true },
+            { type: 'text', text: csoBodyTitle, size: 'md', color: COLORS.text, weight: 'bold', align: 'center', wrap: true },
             { type: 'text', text: `조회기간: ${periodText}`, size: 'xs', color: COLORS.lightGray, align: 'center', margin: 'sm' },
             { type: 'separator', margin: 'md', color: COLORS.border },
             {
@@ -400,7 +406,7 @@ function createSummaryBubble(
     footer: {
       type: 'box',
       layout: 'vertical',
-      contents: [{ type: 'text', text: ' ', size: 'xxs', color: COLORS.white, align: 'center' }],
+      contents: [{ type: 'text', text: 'AJUBIO', size: 'xxs', weight: 'bold', color: COLORS.white, align: 'center' }],
       backgroundColor: COLORS.darkNavy,
       paddingAll: '6px'
     }
@@ -410,7 +416,7 @@ function createSummaryBubble(
 /**
  * 주요병원별 매출 버블들 생성
  */
-function createHospitalBubbles(cso_cd: string, hospitals: HospitalSalesData[], periodText: string): any[] {
+function createHospitalBubbles(cso_cd: string, hospitals: HospitalSalesData[], periodText: string, csoHeaderTitle: string): any[] {
   const bubbles: any[] = [];
   const totalBubbles = Math.ceil(hospitals.length / MAX_BUTTONS_PER_BUBBLE);
 
@@ -473,7 +479,7 @@ function createHospitalBubbles(cso_cd: string, hospitals: HospitalSalesData[], p
       header: {
         type: 'box',
         layout: 'vertical',
-        contents: [{ type: 'text', text: 'AJUBIO', size: 'sm', weight: 'bold', color: COLORS.white, align: 'center' }],
+        contents: [{ type: 'text', text: csoHeaderTitle, size: 'sm', weight: 'bold', color: COLORS.white, align: 'center' }],
         backgroundColor: COLORS.darkNavy,
         paddingAll: '8px'
       },
@@ -503,7 +509,7 @@ function createHospitalBubbles(cso_cd: string, hospitals: HospitalSalesData[], p
       footer: {
         type: 'box',
         layout: 'vertical',
-        contents: [{ type: 'text', text: ' ', size: 'xxs', color: COLORS.white, align: 'center' }],
+        contents: [{ type: 'text', text: 'AJUBIO', size: 'xxs', weight: 'bold', color: COLORS.white, align: 'center' }],
         backgroundColor: COLORS.darkNavy,
         paddingAll: '6px'
       }
@@ -516,7 +522,7 @@ function createHospitalBubbles(cso_cd: string, hospitals: HospitalSalesData[], p
 /**
  * 주요품목별 매출 버블들 생성
  */
-function createDrugBubbles(cso_cd: string, drugs: DrugSalesData[], periodText: string): any[] {
+function createDrugBubbles(cso_cd: string, drugs: DrugSalesData[], periodText: string, csoHeaderTitle: string): any[] {
   const bubbles: any[] = [];
   const totalBubbles = Math.ceil(drugs.length / MAX_BUTTONS_PER_BUBBLE);
 
@@ -580,7 +586,7 @@ function createDrugBubbles(cso_cd: string, drugs: DrugSalesData[], periodText: s
       header: {
         type: 'box',
         layout: 'vertical',
-        contents: [{ type: 'text', text: 'AJUBIO', size: 'sm', weight: 'bold', color: COLORS.white, align: 'center' }],
+        contents: [{ type: 'text', text: csoHeaderTitle, size: 'sm', weight: 'bold', color: COLORS.white, align: 'center' }],
         backgroundColor: COLORS.darkNavy,
         paddingAll: '8px'
       },
@@ -610,7 +616,7 @@ function createDrugBubbles(cso_cd: string, drugs: DrugSalesData[], periodText: s
       footer: {
         type: 'box',
         layout: 'vertical',
-        contents: [{ type: 'text', text: ' ', size: 'xxs', color: COLORS.white, align: 'center' }],
+        contents: [{ type: 'text', text: 'AJUBIO', size: 'xxs', weight: 'bold', color: COLORS.white, align: 'center' }],
         backgroundColor: COLORS.darkNavy,
         paddingAll: '6px'
       }

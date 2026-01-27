@@ -118,7 +118,7 @@ async function testHospitalDepth2(hos_cd: string, hos_cso_cd: string) {
 
   // 캐러셀 생성 및 전송
   console.log('캐러셀 생성 및 전송 중...');
-  const carousel = createHospitalCarousel(result);
+  const carousel = await createHospitalCarousel(result);
   console.log(`버블 개수: ${carousel.contents.length}`);
 
   const hospitalTitle = result.hospital.hos_abbr || result.hospital.hos_name;

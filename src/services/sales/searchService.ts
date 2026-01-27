@@ -149,19 +149,19 @@ export function createSearchResultCarousel(
 
   // CSO 버블들 (버블당 5개 버튼)
   if (result.csos.length > 0) {
-    const csoBubbles = createCategoryBubbles('CSO', result.csos, periodText);
+    const csoBubbles = createCategoryBubbles('CSO', result.csos, periodText, keyword);
     bubbles.push(...csoBubbles);
   }
 
   // HOSPITAL 버블들
   if (result.hospitals.length > 0) {
-    const hospitalBubbles = createCategoryBubbles('HOSPITAL', result.hospitals, periodText);
+    const hospitalBubbles = createCategoryBubbles('HOSPITAL', result.hospitals, periodText, keyword);
     bubbles.push(...hospitalBubbles);
   }
 
   // DRUG 버블들
   if (result.drugs.length > 0) {
-    const drugBubbles = createCategoryBubbles('DRUG', result.drugs, periodText);
+    const drugBubbles = createCategoryBubbles('DRUG', result.drugs, periodText, keyword);
     bubbles.push(...drugBubbles);
   }
 
@@ -180,7 +180,8 @@ export function createSearchResultCarousel(
 function createCategoryBubbles(
   category: 'CSO' | 'HOSPITAL' | 'DRUG',
   items: SearchIndexResult[],
-  periodText: string
+  periodText: string,
+  keyword: string
 ): any[] {
   const bubbles: any[] = [];
   const categoryName = getCategoryName(category);
@@ -196,7 +197,7 @@ function createCategoryBubbles(
         ? `${categoryName} (${bubbleIndex}/${totalBubbles})`
         : categoryName;
 
-    bubbles.push(createCategoryBubble(title, chunk, periodText));
+    bubbles.push(createCategoryBubble(title, chunk, periodText, keyword));
   }
 
   return bubbles;
@@ -222,7 +223,8 @@ function getCategoryName(category: 'CSO' | 'HOSPITAL' | 'DRUG'): string {
 function createCategoryBubble(
   title: string,
   items: SearchIndexResult[],
-  periodText: string
+  periodText: string,
+  keyword: string
 ): any {
   const buttons = items.map((item, index) => {
     const label = getButtonLabel(item);
@@ -250,7 +252,7 @@ function createCategoryBubble(
       contents: [
         {
           type: 'text',
-          text: 'AJUBIO',
+          text: `[ ${keyword} ] 검색결과`,
           size: 'sm',
           weight: 'bold',
           color: COLORS.white,
@@ -318,8 +320,9 @@ function createCategoryBubble(
       contents: [
         {
           type: 'text',
-          text: ' ',
+          text: 'AJUBIO',
           size: 'xxs',
+          weight: 'bold',
           color: COLORS.white,
           align: 'center',
         },
@@ -425,7 +428,7 @@ function createSummaryBubble(keyword: string, result: SearchResult): any {
       contents: [
         {
           type: 'text',
-          text: 'AJUBIO',
+          text: `[ ${keyword} ] 검색결과`,
           size: 'sm',
           weight: 'bold',
           color: COLORS.white,
@@ -465,8 +468,9 @@ function createSummaryBubble(keyword: string, result: SearchResult): any {
       contents: [
         {
           type: 'text',
-          text: ' ',
+          text: 'AJUBIO',
           size: 'xxs',
+          weight: 'bold',
           color: COLORS.white,
           align: 'center',
         },

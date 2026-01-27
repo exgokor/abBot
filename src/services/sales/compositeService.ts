@@ -76,7 +76,7 @@ export async function getCsoHospitalSales(
   const totalSales = monthlyData.reduce((sum, m) => sum + m.total_sales, 0);
 
   return {
-    title: `${csoName} > ${hospitalName}`,
+    title: `${hospitalName}-${csoName}`,
     subtitle: 'CSO-병원 매출',
     summary: { total_sales: totalSales },
     monthlySales: monthlyData,
@@ -129,7 +129,7 @@ export async function getCsoDrugSales(
   const totalSales = monthlyData.reduce((sum, m) => sum + m.total_sales, 0);
 
   return {
-    title: `${csoName} > ${drugName}`,
+    title: `${csoName}-${drugName}`,
     subtitle: 'CSO-품목 매출',
     summary: { total_sales: totalSales },
     monthlySales: monthlyData,
@@ -185,7 +185,7 @@ export async function getHospitalDrugSales(
   const totalSales = monthlyData.reduce((sum, m) => sum + m.total_sales, 0);
 
   return {
-    title: `${hospitalName} > ${drugName}`,
+    title: `${hospitalName}-${drugName}`,
     subtitle: '병원-품목 매출',
     summary: { total_sales: totalSales },
     monthlySales: monthlyData,
@@ -245,7 +245,7 @@ export async function getHospitalCsoSales(
   const totalSales = monthlyData.reduce((sum, m) => sum + m.total_sales, 0);
 
   return {
-    title: `${hospitalName} > ${csoName}`,
+    title: `${hospitalName}-${csoName}`,
     subtitle: '병원-CSO 매출',
     summary: { total_sales: totalSales },
     monthlySales: monthlyData,
@@ -293,7 +293,7 @@ export function createCompositeBubble(result: CompositeResult): any {
       type: 'box',
       layout: 'vertical',
       contents: [
-        { type: 'text', text: 'AJUBIO', size: 'sm', weight: 'bold', color: COLORS.white, align: 'center' }
+        { type: 'text', text: title, size: 'sm', weight: 'bold', color: COLORS.white, align: 'center' }
       ],
       backgroundColor: COLORS.darkNavy,
       paddingAll: '8px'
@@ -345,7 +345,7 @@ export function createCompositeBubble(result: CompositeResult): any {
     footer: {
       type: 'box',
       layout: 'vertical',
-      contents: [{ type: 'text', text: ' ', size: 'xxs', color: COLORS.white, align: 'center' }],
+      contents: [{ type: 'text', text: 'AJUBIO', size: 'xxs', weight: 'bold', color: COLORS.white, align: 'center' }],
       backgroundColor: COLORS.darkNavy,
       paddingAll: '6px'
     }

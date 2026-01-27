@@ -319,13 +319,13 @@ export function createDrugCarousel(result: DrugSalesResult): any {
 
   // 2. 주요병원별 매출 버블들 (버블당 5개 버튼, 최대 4개 버블)
   if (topHospitals.length > 0) {
-    const hospitalBubbles = createHospitalBubbles(drug.drug_cd, topHospitals, periodText);
+    const hospitalBubbles = createHospitalBubbles(drug.drug_cd, topHospitals, periodText, drugTitle);
     bubbles.push(...hospitalBubbles);
   }
 
   // 3. 주요CSO별 매출 버블들 (버블당 5개 버튼, 최대 2개 버블)
   if (topCsos.length > 0) {
-    const csoBubbles = createCsoBubbles(drug.drug_cd, topCsos, periodText);
+    const csoBubbles = createCsoBubbles(drug.drug_cd, topCsos, periodText, drugTitle);
     bubbles.push(...csoBubbles);
   }
 
@@ -352,7 +352,7 @@ function createSummaryBubble(
       type: 'box',
       layout: 'vertical',
       contents: [
-        { type: 'text', text: 'AJUBIO', size: 'sm', weight: 'bold', color: COLORS.white, align: 'center' }
+        { type: 'text', text: drugTitle, size: 'sm', weight: 'bold', color: COLORS.white, align: 'center' }
       ],
       backgroundColor: COLORS.darkNavy,
       paddingAll: '8px'
@@ -411,7 +411,7 @@ function createSummaryBubble(
     footer: {
       type: 'box',
       layout: 'vertical',
-      contents: [{ type: 'text', text: ' ', size: 'xxs', color: COLORS.white, align: 'center' }],
+      contents: [{ type: 'text', text: 'AJUBIO', size: 'xxs', weight: 'bold', color: COLORS.white, align: 'center' }],
       backgroundColor: COLORS.darkNavy,
       paddingAll: '6px'
     }
@@ -421,7 +421,7 @@ function createSummaryBubble(
 /**
  * 주요병원별 매출 버블들 생성
  */
-function createHospitalBubbles(drug_cd: string, hospitals: HospitalSalesData[], periodText: string): any[] {
+function createHospitalBubbles(drug_cd: string, hospitals: HospitalSalesData[], periodText: string, drugTitle: string): any[] {
   const bubbles: any[] = [];
   const totalBubbles = Math.ceil(hospitals.length / MAX_BUTTONS_PER_BUBBLE);
 
@@ -484,7 +484,7 @@ function createHospitalBubbles(drug_cd: string, hospitals: HospitalSalesData[], 
       header: {
         type: 'box',
         layout: 'vertical',
-        contents: [{ type: 'text', text: 'AJUBIO', size: 'sm', weight: 'bold', color: COLORS.white, align: 'center' }],
+        contents: [{ type: 'text', text: drugTitle, size: 'sm', weight: 'bold', color: COLORS.white, align: 'center' }],
         backgroundColor: COLORS.darkNavy,
         paddingAll: '8px'
       },
@@ -514,7 +514,7 @@ function createHospitalBubbles(drug_cd: string, hospitals: HospitalSalesData[], 
       footer: {
         type: 'box',
         layout: 'vertical',
-        contents: [{ type: 'text', text: ' ', size: 'xxs', color: COLORS.white, align: 'center' }],
+        contents: [{ type: 'text', text: 'AJUBIO', size: 'xxs', weight: 'bold', color: COLORS.white, align: 'center' }],
         backgroundColor: COLORS.darkNavy,
         paddingAll: '6px'
       }
@@ -527,7 +527,7 @@ function createHospitalBubbles(drug_cd: string, hospitals: HospitalSalesData[], 
 /**
  * 주요CSO별 매출 버블들 생성
  */
-function createCsoBubbles(drug_cd: string, csos: CsoSalesData[], periodText: string): any[] {
+function createCsoBubbles(drug_cd: string, csos: CsoSalesData[], periodText: string, drugTitle: string): any[] {
   const bubbles: any[] = [];
   const totalBubbles = Math.ceil(csos.length / MAX_BUTTONS_PER_BUBBLE);
 
@@ -590,7 +590,7 @@ function createCsoBubbles(drug_cd: string, csos: CsoSalesData[], periodText: str
       header: {
         type: 'box',
         layout: 'vertical',
-        contents: [{ type: 'text', text: 'AJUBIO', size: 'sm', weight: 'bold', color: COLORS.white, align: 'center' }],
+        contents: [{ type: 'text', text: drugTitle, size: 'sm', weight: 'bold', color: COLORS.white, align: 'center' }],
         backgroundColor: COLORS.darkNavy,
         paddingAll: '8px'
       },
@@ -620,7 +620,7 @@ function createCsoBubbles(drug_cd: string, csos: CsoSalesData[], periodText: str
       footer: {
         type: 'box',
         layout: 'vertical',
-        contents: [{ type: 'text', text: ' ', size: 'xxs', color: COLORS.white, align: 'center' }],
+        contents: [{ type: 'text', text: 'AJUBIO', size: 'xxs', weight: 'bold', color: COLORS.white, align: 'center' }],
         backgroundColor: COLORS.darkNavy,
         paddingAll: '6px'
       }
