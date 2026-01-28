@@ -34,6 +34,8 @@ interface ThirdDimensionItem {
   code: string;
   name: string;
   total_sales: number;
+  month_count: number;  // 실제 매출이 있는 개월수
+  monthly_sales_data?: string;  // "sales_index:amount,..." 형식
 }
 
 // 확장된 복합 조회 결과 인터페이스
@@ -321,22 +323,30 @@ async function getHospitalCsoDrugs(
     .input('startIndex', sql.Int, startIndex)
     .input('endIndex', sql.Int, endIndex)
     .query(`
-      SELECT s.drug_cd AS code, d.drug_name AS name,
-             SUM(s.drug_cnt * s.drug_price) AS total_sales
-      FROM SALES_TBL s
-      LEFT JOIN DRUG_TBL d ON s.drug_cd = d.drug_cd
-        AND s.sales_index BETWEEN d.start_index AND d.end_index
-      WHERE s.hos_cd = @hos_cd AND s.hos_cso_cd = @hos_cso_cd
-        AND s.cso_cd_then = @cso_cd
-        AND s.sales_index BETWEEN @startIndex AND @endIndex
-      GROUP BY s.drug_cd, d.drug_name
-      ORDER BY SUM(s.drug_cnt * s.drug_price) DESC
+      WITH MonthlyData AS (
+        SELECT drug_cd, sales_index, SUM(drug_cnt * drug_price) AS monthly_sales
+        FROM SALES_TBL
+        WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd AND cso_cd_then = @cso_cd
+          AND sales_index BETWEEN @startIndex AND @endIndex
+        GROUP BY drug_cd, sales_index
+      )
+      SELECT m.drug_cd AS code,
+             (SELECT TOP 1 d.drug_name FROM DRUG_TBL d WHERE d.drug_cd = m.drug_cd ORDER BY d.end_index DESC) AS name,
+             SUM(m.monthly_sales) AS total_sales,
+             COUNT(*) AS month_count,
+             STRING_AGG(CAST(m.sales_index AS VARCHAR) + ':' + CAST(m.monthly_sales AS VARCHAR), ',')
+               WITHIN GROUP (ORDER BY m.sales_index) AS monthly_sales_data
+      FROM MonthlyData m
+      GROUP BY m.drug_cd
+      ORDER BY SUM(m.monthly_sales) DESC
     `);
 
   return result.recordset.map(r => ({
     code: r.code,
     name: formatDrugName(r.name) || r.code,
-    total_sales: r.total_sales || 0
+    total_sales: r.total_sales || 0,
+    month_count: r.month_count || 1,
+    monthly_sales_data: r.monthly_sales_data
   }));
 }
 
@@ -358,21 +368,30 @@ async function getHospitalDrugCsos(
     .input('startIndex', sql.Int, startIndex)
     .input('endIndex', sql.Int, endIndex)
     .query(`
-      SELECT s.cso_cd_then AS code, ISNULL(c.cso_dealer_nm, '미지정') AS name,
-             SUM(s.drug_cnt * s.drug_price) AS total_sales
-      FROM SALES_TBL s
-      LEFT JOIN CSO_TBL c ON s.cso_cd_then = c.cso_cd
-      WHERE s.hos_cd = @hos_cd AND s.hos_cso_cd = @hos_cso_cd
-        AND s.drug_cd = @drug_cd
-        AND s.sales_index BETWEEN @startIndex AND @endIndex
-      GROUP BY s.cso_cd_then, c.cso_dealer_nm
-      ORDER BY SUM(s.drug_cnt * s.drug_price) DESC
+      WITH MonthlyData AS (
+        SELECT cso_cd_then, sales_index, SUM(drug_cnt * drug_price) AS monthly_sales
+        FROM SALES_TBL
+        WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd AND drug_cd = @drug_cd
+          AND sales_index BETWEEN @startIndex AND @endIndex
+        GROUP BY cso_cd_then, sales_index
+      )
+      SELECT m.cso_cd_then AS code,
+             ISNULL((SELECT TOP 1 c.cso_dealer_nm FROM CSO_TBL c WHERE c.cso_cd = m.cso_cd_then), '미지정') AS name,
+             SUM(m.monthly_sales) AS total_sales,
+             COUNT(*) AS month_count,
+             STRING_AGG(CAST(m.sales_index AS VARCHAR) + ':' + CAST(m.monthly_sales AS VARCHAR), ',')
+               WITHIN GROUP (ORDER BY m.sales_index) AS monthly_sales_data
+      FROM MonthlyData m
+      GROUP BY m.cso_cd_then
+      ORDER BY SUM(m.monthly_sales) DESC
     `);
 
   return result.recordset.map(r => ({
     code: r.code,
     name: r.name,
-    total_sales: r.total_sales || 0
+    total_sales: r.total_sales || 0,
+    month_count: r.month_count || 1,
+    monthly_sales_data: r.monthly_sales_data
   }));
 }
 
@@ -392,21 +411,31 @@ async function getCsoDrugHospitals(
     .input('startIndex', sql.Int, startIndex)
     .input('endIndex', sql.Int, endIndex)
     .query(`
-      SELECT s.hos_cd + '|' + s.hos_cso_cd AS code,
-             ISNULL(h.hos_abbr, h.hos_name) AS name,
-             SUM(s.drug_cnt * s.drug_price) AS total_sales
-      FROM SALES_TBL s
-      LEFT JOIN HOSPITAL_TBL h ON s.hos_cd = h.hos_cd AND s.hos_cso_cd = h.hos_cso_cd
-      WHERE s.cso_cd_then = @cso_cd AND s.drug_cd = @drug_cd
-        AND s.sales_index BETWEEN @startIndex AND @endIndex
-      GROUP BY s.hos_cd, s.hos_cso_cd, h.hos_abbr, h.hos_name
-      ORDER BY SUM(s.drug_cnt * s.drug_price) DESC
+      WITH MonthlyData AS (
+        SELECT hos_cd, hos_cso_cd, sales_index, SUM(drug_cnt * drug_price) AS monthly_sales
+        FROM SALES_TBL
+        WHERE cso_cd_then = @cso_cd AND drug_cd = @drug_cd
+          AND sales_index BETWEEN @startIndex AND @endIndex
+        GROUP BY hos_cd, hos_cso_cd, sales_index
+      )
+      SELECT m.hos_cd + '|' + m.hos_cso_cd AS code,
+             ISNULL((SELECT TOP 1 ISNULL(h.hos_abbr, h.hos_name) FROM HOSPITAL_TBL h
+                     WHERE h.hos_cd = m.hos_cd AND h.hos_cso_cd = m.hos_cso_cd), '미지정') AS name,
+             SUM(m.monthly_sales) AS total_sales,
+             COUNT(*) AS month_count,
+             STRING_AGG(CAST(m.sales_index AS VARCHAR) + ':' + CAST(m.monthly_sales AS VARCHAR), ',')
+               WITHIN GROUP (ORDER BY m.sales_index) AS monthly_sales_data
+      FROM MonthlyData m
+      GROUP BY m.hos_cd, m.hos_cso_cd
+      ORDER BY SUM(m.monthly_sales) DESC
     `);
 
   return result.recordset.map(r => ({
     code: r.code,
     name: r.name || '미지정',
-    total_sales: r.total_sales || 0
+    total_sales: r.total_sales || 0,
+    month_count: r.month_count || 1,
+    monthly_sales_data: r.monthly_sales_data
   }));
 }
 
@@ -608,6 +637,26 @@ export async function getDrugHospitalSalesExtended(
   period?: PeriodInfo
 ): Promise<ExtendedCompositeResult | null> {
   return getHospitalDrugSalesExtended(hos_cd, hos_cso_cd, drug_cd, period);
+}
+
+// ========== 헬퍼 함수들 ==========
+
+/**
+ * monthly_sales_data 문자열을 파싱하여 월별 매출 추이 텍스트 생성
+ * 입력: "300:1000000,301:1500000,302:2000000"
+ * 출력: "1.0 > 1.5 > 2.0"
+ */
+function formatMonthlySalesTrend(monthlySalesData: string | undefined): string {
+  if (!monthlySalesData) return '';
+
+  const parts = monthlySalesData.split(',');
+  const salesValues = parts.map(part => {
+    const [_, value] = part.split(':');
+    return parseFloat(value) || 0;
+  });
+
+  // 월별 매출을 formatSalesMoney로 포맷팅
+  return salesValues.map(v => formatSalesMoney(v)).join(' > ');
 }
 
 // ========== 버블 생성 함수들 ==========
@@ -819,18 +868,34 @@ function createThirdDimensionBubble(result: ExtendedCompositeResult): any {
     thirdDimension.type === 'DRUG' ? '거래 품목' :
     thirdDimension.type === 'CSO' ? '거래 CSO' : '거래 병원';
 
-  // 상위 5개 항목 표시 (월평균으로 변환)
-  const itemRows: any[] = thirdDimension.items.slice(0, 5).map((item, index) => {
-    const monthlyAvg = item.total_sales / periodMonths;
-    return {
+  // 상위 5개 항목 표시 (실제 매출 개월수로 월평균 계산 + 추이)
+  const itemRows: any[] = [];
+  thirdDimension.items.slice(0, 5).forEach((item, index) => {
+    const monthlyAvg = item.total_sales / item.month_count;
+    const trendText = formatMonthlySalesTrend(item.monthly_sales_data);
+
+    // 품목명 + 월평균
+    itemRows.push({
       type: 'box',
       layout: 'horizontal',
       contents: [
         { type: 'text', text: `${index + 1}. ${item.name}`, size: 'xs', color: COLORS.text, flex: 3, wrap: true },
         { type: 'text', text: formatSalesMoney(monthlyAvg), size: 'xs', weight: 'bold', color: COLORS.text, align: 'end', flex: 2 }
       ],
-      margin: index === 0 ? 'none' : 'sm'
-    };
+      margin: index === 0 ? 'none' : 'md'
+    });
+
+    // 추이 텍스트 (있으면 표시)
+    if (trendText) {
+      itemRows.push({
+        type: 'text',
+        text: `( ${trendText} )`,
+        size: 'xxs',
+        color: COLORS.subtext,
+        align: 'end',
+        margin: 'xs'
+      });
+    }
   });
 
   // 5개 초과 시 "외 N건" 표시
