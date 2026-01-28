@@ -75,19 +75,19 @@ export function createButtonFooter(buttons: any[]): any {
         type: 'box',
         layout: 'horizontal',
         contents: buttons,
-        spacing: 'sm',
+        spacing: 'md',
       },
       {
         type: 'text',
         text: 'AJUBIO',
         size: 'xxs',
         weight: 'bold',
-        color: COLORS.white,
+        color: COLORS.darkNavy,
         align: 'center',
         margin: 'sm',
       },
     ],
-    backgroundColor: COLORS.darkNavy,
+    backgroundColor: COLORS.background,
     paddingAll: '8px',
   };
 }

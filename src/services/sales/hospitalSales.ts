@@ -840,6 +840,7 @@ function createSingleBlockBubble(
       type: 'box',
       layout: 'vertical',
       contents: [
+        { type: 'image', url: LOGO_URL, aspectRatio: '5:3', size: 'sm', aspectMode: 'fit' },
         {
           type: 'box',
           layout: 'vertical',
@@ -863,6 +864,7 @@ function createSingleBlockBubble(
           backgroundColor: COLORS.white,
           cornerRadius: '12px',
           paddingAll: '16px',
+          margin: 'md',
         },
       ],
       backgroundColor: COLORS.background,

@@ -870,6 +870,7 @@ function createThirdDimensionBubble(result: ExtendedCompositeResult): any {
       type: 'box',
       layout: 'vertical',
       contents: [
+        { type: 'image', url: LOGO_URL, aspectRatio: '5:3', size: 'sm', aspectMode: 'fit' },
         {
           type: 'box',
           layout: 'vertical',
@@ -882,7 +883,7 @@ function createThirdDimensionBubble(result: ExtendedCompositeResult): any {
           backgroundColor: COLORS.white,
           cornerRadius: '12px',
           paddingAll: '16px',
-          margin: 'none'
+          margin: 'md'
         }
       ],
       backgroundColor: COLORS.background,
