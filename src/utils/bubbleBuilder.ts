@@ -9,7 +9,7 @@ export const COLORS = {
   background: '#F0F8FF',    // 본문 배경 (연한 하늘색)
   white: '#FFFFFF',         // 콘텐츠 상자 배경
   navy: '#1D3A8F',          // 버튼 primary
-  lightBlue: '#DCEAF7',     // 버튼 secondary
+  lightBlue: '#E9EFF5',     // 버튼 secondary (더 연한 하늘색)
   buttonAlt: '#FFFCCC',     // 버튼 대체 색상 (연한 노랑)
   text: '#000000',          // 본문 텍스트
   subtext: '#666666',       // 보조 텍스트

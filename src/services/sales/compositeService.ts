@@ -811,7 +811,7 @@ function createMainCompositeBubble(result: ExtendedCompositeResult): any {
  * 세번째 차원 요약 버블 생성
  */
 function createThirdDimensionBubble(result: ExtendedCompositeResult): any {
-  const { title, thirdDimension } = result;
+  const { title, thirdDimension, periodMonths, periodText } = result;
 
   if (!thirdDimension) return null;
 
@@ -819,16 +819,19 @@ function createThirdDimensionBubble(result: ExtendedCompositeResult): any {
     thirdDimension.type === 'DRUG' ? '거래 품목' :
     thirdDimension.type === 'CSO' ? '거래 CSO' : '거래 병원';
 
-  // 상위 5개 항목 표시
-  const itemRows: any[] = thirdDimension.items.slice(0, 5).map((item, index) => ({
-    type: 'box',
-    layout: 'horizontal',
-    contents: [
-      { type: 'text', text: `${index + 1}. ${item.name}`, size: 'xs', color: COLORS.text, flex: 3, wrap: true },
-      { type: 'text', text: formatSalesMoney(item.total_sales), size: 'xs', weight: 'bold', color: COLORS.navy, align: 'end', flex: 2 }
-    ],
-    margin: index === 0 ? 'none' : 'sm'
-  }));
+  // 상위 5개 항목 표시 (월평균으로 변환)
+  const itemRows: any[] = thirdDimension.items.slice(0, 5).map((item, index) => {
+    const monthlyAvg = item.total_sales / periodMonths;
+    return {
+      type: 'box',
+      layout: 'horizontal',
+      contents: [
+        { type: 'text', text: `${index + 1}. ${item.name}`, size: 'xs', color: COLORS.text, flex: 3, wrap: true },
+        { type: 'text', text: formatSalesMoney(monthlyAvg), size: 'xs', weight: 'bold', color: COLORS.text, align: 'end', flex: 2 }
+      ],
+      margin: index === 0 ? 'none' : 'sm'
+    };
+  });
 
   // 5개 초과 시 "외 N건" 표시
   const additionalCount = thirdDimension.total_count - 5;
@@ -864,7 +867,8 @@ function createThirdDimensionBubble(result: ExtendedCompositeResult): any {
           layout: 'vertical',
           contents: [
             { type: 'text', text: dimensionTitle, size: 'md', weight: 'bold', color: COLORS.text, align: 'center' },
-            { type: 'text', text: `총 ${thirdDimension.total_count}건`, size: 'xs', color: COLORS.lightGray, align: 'center', margin: 'xs' },
+            { type: 'text', text: `조회기간: ${periodText}`, size: 'xs', color: COLORS.lightGray, align: 'center', margin: 'xs' },
+            { type: 'text', text: `총 ${thirdDimension.total_count}건 (월평균)`, size: 'xs', color: COLORS.subtext, align: 'center', margin: 'xs' },
             { type: 'separator', margin: 'md', color: COLORS.border },
             ...itemRows
           ],

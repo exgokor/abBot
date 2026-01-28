@@ -19,7 +19,8 @@ const COLORS = {
   background: '#F0F8FF',
   white: '#FFFFFF',
   navy: '#1D3A8F',
-  lightBlue: '#DCEAF7',
+  lightBlue: '#E9EFF5',     // 더 연한 하늘색
+  buttonAlt: '#FFFCCC',     // 버튼 primary
   text: '#000000',
   subtext: '#666666',
   lightGray: '#999999',
@@ -237,9 +238,9 @@ function createCategoryBubble(
         label: label.length > 20 ? label.slice(0, 18) + '..' : label,
         data: encodePostback(postbackData),
       },
-      style: index % 2 === 0 ? 'primary' : 'secondary',
+      style: 'secondary',  // 검정 글씨
       height: 'sm',
-      color: index % 2 === 0 ? COLORS.navy : COLORS.lightBlue,
+      color: index % 2 === 0 ? COLORS.buttonAlt : COLORS.lightBlue,
       margin: 'sm',
     };
   });
@@ -414,7 +415,7 @@ function createSummaryBubble(keyword: string, result: SearchResult): any {
     type: 'text',
     text: `총 ${result.totalCount}건`,
     size: 'sm',
-    color: COLORS.navy,
+    color: COLORS.text,
     weight: 'bold',
     align: 'center',
     margin: 'md',
@@ -495,7 +496,7 @@ function createStatusRow(label: string, value: string): any {
         text: value,
         size: 'sm',
         weight: 'bold',
-        color: COLORS.navy,
+        color: COLORS.text,
         align: 'end',
         flex: 2,
       },

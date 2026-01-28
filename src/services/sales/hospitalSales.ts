@@ -487,9 +487,9 @@ function createDrugBubbles(hos_cd: string, hos_cso_cd: string, drugs: DrugSalesD
           label: displayLabel,
           data: encodePostback(postback),
         },
-        style: index % 2 === 0 ? 'primary' : 'secondary',
+        style: 'secondary',  // 검정 글씨
         height: 'sm',
-        color: index % 2 === 0 ? COLORS.navy : COLORS.lightBlue,
+        color: index % 2 === 0 ? COLORS.buttonAlt : COLORS.lightBlue,
         margin: 'sm',
       };
     });
@@ -593,9 +593,9 @@ function createCsoBubbles(hos_cd: string, hos_cso_cd: string, csos: CsoSalesData
           label: displayLabel,
           data: encodePostback(postback),
         },
-        style: index % 2 === 0 ? 'primary' : 'secondary',
+        style: 'secondary',  // 검정 글씨
         height: 'sm',
-        color: index % 2 === 0 ? COLORS.navy : COLORS.lightBlue,
+        color: index % 2 === 0 ? COLORS.buttonAlt : COLORS.lightBlue,
         margin: 'sm',
       };
     });
