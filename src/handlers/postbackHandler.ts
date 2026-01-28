@@ -5,13 +5,13 @@ import { getCsoSales, createCsoCarousel } from '../services/sales/csoSales';
 import { getHospitalSales, createHospitalCarousel } from '../services/sales/hospitalSales';
 import { getDrugSales, createDrugCarousel } from '../services/sales/drugSales';
 import {
-  getCsoHospitalSales,
-  getCsoDrugSales,
-  getHospitalDrugSales,
-  getHospitalCsoSales,
-  getDrugHospitalSales,
-  getDrugCsoSales,
-  createCompositeBubble
+  getCsoHospitalSalesExtended,
+  getCsoDrugSalesExtended,
+  getHospitalDrugSalesExtended,
+  getHospitalCsoSalesExtended,
+  getDrugHospitalSalesExtended,
+  getDrugCsoSalesExtended,
+  createCompositeCarousel
 } from '../services/sales/compositeService';
 import { decodePostback, PostbackData, parseDepth3Code, Depth3EntityType } from '../types/postback';
 import { getCurrentPeriod } from '../services/sales/periodService';
@@ -65,8 +65,9 @@ async function handleNewFormatPostback(userId: string, postback: PostbackData): 
 
 /**
  * Depth2 단일 엔티티 조회
+ * @export textHandler에서 단일 검색결과 시 직접 호출
  */
-async function handleDepth2(
+export async function handleDepth2(
   userId: string,
   type: string,
   code: string,
@@ -87,8 +88,11 @@ async function handleDepth2(
       const result = await withDbRetry(userId, () => getHospitalSales(hos_cd, hos_cso_cd, period), '병원 조회');
       if (result) {
         const hospitalName = result.hospital.hos_abbr || result.hospital.hos_name;
-        const carousel = await createHospitalCarousel(result);
-        await sendFlexMessage(userId, carousel, `[${hospitalName}] 병원 조회`);
+        const carousels = await createHospitalCarousel(result);
+        // 캐러셀이 여러 개면 순차적으로 전송 (NaverWorks 10개 버블 제한)
+        for (const carousel of carousels) {
+          await sendFlexMessage(userId, carousel, `[${hospitalName}] 병원 조회`);
+        }
       }
       break;
     }
@@ -109,7 +113,7 @@ async function handleDepth2(
 }
 
 /**
- * Depth3 복합 엔티티 조회
+ * Depth3 복합 엔티티 조회 (확장: 네비게이션 버튼 + 세번째 차원 요약)
  */
 async function handleDepth3(
   userId: string,
@@ -129,12 +133,12 @@ async function handleDepth3(
       const hos_cso_cd = parsed.secondHosCsoCd!;
       const result = await withDbRetry(
         userId,
-        () => getCsoHospitalSales(cso_cd, hos_cd, hos_cso_cd, period),
+        () => getCsoHospitalSalesExtended(cso_cd, hos_cd, hos_cso_cd, period),
         'CSO-병원 조회'
       );
       if (result) {
-        const bubble = createCompositeBubble(result);
-        await sendFlexMessage(userId, bubble, result.title);
+        const carousel = createCompositeCarousel(result);
+        await sendFlexMessage(userId, carousel, result.title);
       }
       break;
     }
@@ -145,12 +149,12 @@ async function handleDepth3(
       const drug_cd = parsed.second;
       const result = await withDbRetry(
         userId,
-        () => getCsoDrugSales(cso_cd, drug_cd, period),
+        () => getCsoDrugSalesExtended(cso_cd, drug_cd, period),
         'CSO-품목 조회'
       );
       if (result) {
-        const bubble = createCompositeBubble(result);
-        await sendFlexMessage(userId, bubble, result.title);
+        const carousel = createCompositeCarousel(result);
+        await sendFlexMessage(userId, carousel, result.title);
       }
       break;
     }
@@ -162,12 +166,12 @@ async function handleDepth3(
       const drug_cd = parsed.second;
       const result = await withDbRetry(
         userId,
-        () => getHospitalDrugSales(hos_cd, hos_cso_cd, drug_cd, period),
+        () => getHospitalDrugSalesExtended(hos_cd, hos_cso_cd, drug_cd, period),
         '병원-품목 조회'
       );
       if (result) {
-        const bubble = createCompositeBubble(result);
-        await sendFlexMessage(userId, bubble, result.title);
+        const carousel = createCompositeCarousel(result);
+        await sendFlexMessage(userId, carousel, result.title);
       }
       break;
     }
@@ -179,12 +183,12 @@ async function handleDepth3(
       const cso_cd = parsed.second;
       const result = await withDbRetry(
         userId,
-        () => getHospitalCsoSales(hos_cd, hos_cso_cd, cso_cd, period),
+        () => getHospitalCsoSalesExtended(hos_cd, hos_cso_cd, cso_cd, period),
         '병원-CSO 조회'
       );
       if (result) {
-        const bubble = createCompositeBubble(result);
-        await sendFlexMessage(userId, bubble, result.title);
+        const carousel = createCompositeCarousel(result);
+        await sendFlexMessage(userId, carousel, result.title);
       }
       break;
     }
@@ -196,12 +200,12 @@ async function handleDepth3(
       const hos_cso_cd = parsed.secondHosCsoCd!;
       const result = await withDbRetry(
         userId,
-        () => getDrugHospitalSales(drug_cd, hos_cd, hos_cso_cd, period),
+        () => getDrugHospitalSalesExtended(drug_cd, hos_cd, hos_cso_cd, period),
         '품목-병원 조회'
       );
       if (result) {
-        const bubble = createCompositeBubble(result);
-        await sendFlexMessage(userId, bubble, result.title);
+        const carousel = createCompositeCarousel(result);
+        await sendFlexMessage(userId, carousel, result.title);
       }
       break;
     }
@@ -212,12 +216,12 @@ async function handleDepth3(
       const cso_cd = parsed.second;
       const result = await withDbRetry(
         userId,
-        () => getDrugCsoSales(drug_cd, cso_cd, period),
+        () => getDrugCsoSalesExtended(drug_cd, cso_cd, period),
         '품목-CSO 조회'
       );
       if (result) {
-        const bubble = createCompositeBubble(result);
-        await sendFlexMessage(userId, bubble, result.title);
+        const carousel = createCompositeCarousel(result);
+        await sendFlexMessage(userId, carousel, result.title);
       }
       break;
     }

@@ -118,11 +118,14 @@ async function testHospitalDepth2(hos_cd: string, hos_cso_cd: string) {
 
   // 캐러셀 생성 및 전송
   console.log('캐러셀 생성 및 전송 중...');
-  const carousel = await createHospitalCarousel(result);
-  console.log(`버블 개수: ${carousel.contents.length}`);
+  const carousels = await createHospitalCarousel(result);
+  const totalBubbles = carousels.reduce((sum, c) => sum + c.contents.length, 0);
+  console.log(`캐러셀 개수: ${carousels.length}, 총 버블 개수: ${totalBubbles}`);
 
   const hospitalTitle = result.hospital.hos_abbr || result.hospital.hos_name;
-  await sendFlexMessage(TEST_USER_ID, carousel, `[${hospitalTitle}] 병원 조회`);
+  for (const carousel of carousels) {
+    await sendFlexMessage(TEST_USER_ID, carousel, `[${hospitalTitle}] 병원 조회`);
+  }
   console.log('전송 완료!');
 }
 

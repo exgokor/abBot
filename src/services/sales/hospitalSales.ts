@@ -23,6 +23,8 @@ const MAX_DRUGS = 10;
 const MAX_CSOS = 10;
 // 블록 버블당 최대 라인 수
 const MAX_LINES_PER_BLOCK_BUBBLE = 12;
+// NaverWorks 캐러셀 최대 버블 수
+const MAX_CAROUSEL_BUBBLES = 10;
 
 interface MonthlySalesData {
   sales_year: number;
@@ -332,7 +334,7 @@ export async function getHospitalSales(
  * - 주요품목별 매출 버블 (최대 2개, 버블당 5개 버튼)
  * - 주요CSO별 매출 버블 (최대 2개)
  */
-export async function createHospitalCarousel(result: HospitalSalesResult): Promise<any> {
+export async function createHospitalCarousel(result: HospitalSalesResult): Promise<any[]> {
   const { hospital, summary, monthlySales, topDrugs, topCsos, periodMonths, periodText } = result;
   const monthlyAvg = summary.total_sales / periodMonths;
   const trendText = monthlySales.map(m => formatSalesMoney(m.total_sales)).join(' > ');
@@ -344,7 +346,7 @@ export async function createHospitalCarousel(result: HospitalSalesResult): Promi
   // 1. 요약 버블
   bubbles.push(createSummaryBubble(hospital, hospitalTitle, summary, monthlyAvg, trendText, periodText));
 
-  // 2. 블록현황 버블들 (요약 버블 다음에 표시)
+  // 2. 블록현황 버블들
   const blocks = await getHospitalBlocks(hospital.hos_cd, hospital.hos_cso_cd);
   if (blocks.length > 0) {
     const blockBubbles = createBlockBubbles(hospitalTitle, blocks);
@@ -363,10 +365,16 @@ export async function createHospitalCarousel(result: HospitalSalesResult): Promi
     bubbles.push(...csoBubbles);
   }
 
-  return {
-    type: 'carousel',
-    contents: bubbles
-  };
+  // NaverWorks 캐러셀 10개 제한: 초과 시 여러 캐러셀로 분할
+  const carousels: any[] = [];
+  for (let i = 0; i < bubbles.length; i += MAX_CAROUSEL_BUBBLES) {
+    carousels.push({
+      type: 'carousel',
+      contents: bubbles.slice(i, i + MAX_CAROUSEL_BUBBLES)
+    });
+  }
+
+  return carousels;
 }
 
 /**

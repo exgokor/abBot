@@ -16,11 +16,7 @@ import {
 } from '../services/sales/searchService';
 import { getCurrentPeriod } from '../services/sales/periodService';
 import { withDbRetry } from '../utils/dbErrorHandler';
-
-// Depth2 핸들러들 (추후 구현)
-// import { handleCsoDepth2 } from './depth2/csoHandler';
-// import { handleHospitalDepth2 } from './depth2/hospitalHandler';
-// import { handleDrugDepth2 } from './depth2/drugHandler';
+import { handleDepth2 } from './postbackHandler';
 
 /**
  * 텍스트 메시지 처리
@@ -117,29 +113,13 @@ async function handleDepth1Search(userId: string, keyword: string): Promise<void
     return;
   }
 
-  // Case 3: 단일 결과 → 바로 Depth2로
+  // Case 3: 단일 결과 → 바로 Depth2로 (중간 검색결과 화면 패스)
   if (isSingleResult(searchResult)) {
     const entity = getSingleEntity(searchResult);
     if (entity) {
       await sendTextMessage(userId, `"${entity.search_name}" 조회 중...`);
-
-      // TODO: Depth2 핸들러 호출
-      // switch (entity.entity_type) {
-      //   case 'CSO':
-      //     await handleCsoDepth2(userId, entity.entity_cd, period);
-      //     break;
-      //   case 'HOSPITAL':
-      //     const [hos_cd, hos_cso_cd] = entity.entity_cd.split('|');
-      //     await handleHospitalDepth2(userId, hos_cd, hos_cso_cd, period);
-      //     break;
-      //   case 'DRUG':
-      //     await handleDrugDepth2(userId, entity.entity_cd, period);
-      //     break;
-      // }
-
-      // 임시: 단일 결과도 캐러셀로 표시
-      const carousel = createSearchResultCarousel(keyword, searchResult, period.periodText);
-      await sendFlexMessage(userId, carousel, `[${keyword}] 검색 완료`);
+      // Depth2 직접 호출
+      await handleDepth2(userId, entity.entity_type, entity.entity_cd, period);
       return;
     }
   }
