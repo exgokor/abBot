@@ -7,7 +7,7 @@ import { getConnection } from '../database/connection';
 import sql from 'mssql';
 import { formatDrugName } from '../../utils/drugNameFormatter';
 import { formatSalesMoney } from '../../utils/numberFormatter';
-import { COLORS, LOGO_URL, createButtonFooter } from '../../utils/bubbleBuilder';
+import { COLORS, LOGO_URL, createFooter } from '../../utils/bubbleBuilder';
 import { getCurrentPeriod, PeriodInfo } from './periodService';
 import { encodePostback } from '../../types/postback';
 
@@ -715,10 +715,10 @@ function createMainCompositeBubble(result: ExtendedCompositeResult): any {
   const monthlyAvg = summary.total_sales / periodMonths;
   const trendText = monthlySales.map(m => formatSalesMoney(m.total_sales)).join(' > ');
 
-  // 네비게이션 버튼 생성
+  // 네비게이션 버튼 생성 (바디에 배치)
   const buttons: any[] = [];
 
-  // 병원 전체보기 버튼
+  // 병원 전체보기 버튼 (연한 하늘색)
   if (involvedEntities.hospital) {
     const { hos_cd, hos_cso_cd } = involvedEntities.hospital;
     buttons.push({
@@ -728,13 +728,13 @@ function createMainCompositeBubble(result: ExtendedCompositeResult): any {
         label: '병원전체보기',
         data: encodePostback({ d: 2, t: 'HOSPITAL', c: `${hos_cd}|${hos_cso_cd}` })
       },
-      style: 'primary',
+      style: 'secondary',
       height: 'sm',
-      color: COLORS.navy
+      color: COLORS.background  // #F0F8FF
     });
   }
 
-  // CSO 전체보기 버튼
+  // CSO 전체보기 버튼 (연한 노랑)
   if (involvedEntities.cso) {
     buttons.push({
       type: 'button',
@@ -745,20 +745,60 @@ function createMainCompositeBubble(result: ExtendedCompositeResult): any {
       },
       style: 'secondary',
       height: 'sm',
-      color: COLORS.lightBlue
+      color: COLORS.buttonAlt  // #FFFCCC
     });
   }
 
-  // 푸터 생성 (버튼이 있으면 버튼 포함, 없으면 AJUBIO만)
-  const footer = buttons.length > 0
-    ? createButtonFooter(buttons)
-    : {
-        type: 'box',
-        layout: 'vertical',
-        contents: [{ type: 'text', text: 'AJUBIO', size: 'xxs', weight: 'bold', color: COLORS.white, align: 'center' }],
-        backgroundColor: COLORS.darkNavy,
-        paddingAll: '6px'
-      };
+  // 바디 콘텐츠 구성
+  const bodyContents: any[] = [
+    { type: 'image', url: LOGO_URL, aspectRatio: '5:3', size: 'sm', aspectMode: 'fit' },
+    {
+      type: 'box',
+      layout: 'vertical',
+      contents: [
+        { type: 'text', text: title, size: 'md', color: COLORS.text, weight: 'bold', align: 'center', wrap: true },
+        { type: 'text', text: subtitle, size: 'xs', color: COLORS.subtext, align: 'center', margin: 'xs' },
+        { type: 'text', text: `조회기간: ${periodText}`, size: 'xs', color: COLORS.lightGray, align: 'center', margin: 'sm' },
+        { type: 'separator', margin: 'md', color: COLORS.border },
+        {
+          type: 'box',
+          layout: 'horizontal',
+          contents: [
+            { type: 'text', text: '총 매출', size: 'sm', color: COLORS.subtext },
+            { type: 'text', text: formatSalesMoney(summary.total_sales), size: 'lg', weight: 'bold', color: COLORS.text, align: 'end' }
+          ],
+          margin: 'md'
+        },
+        {
+          type: 'box',
+          layout: 'horizontal',
+          contents: [
+            { type: 'text', text: '월평균', size: 'sm', color: COLORS.subtext },
+            { type: 'text', text: formatSalesMoney(monthlyAvg), size: 'sm', weight: 'bold', color: COLORS.text, align: 'end' }
+          ],
+          margin: 'sm'
+        },
+        { type: 'separator', margin: 'md', color: COLORS.border },
+        { type: 'text', text: '월별 매출 추이', size: 'xs', color: COLORS.subtext, margin: 'md' },
+        { type: 'text', text: trendText, size: 'sm', color: COLORS.text, weight: 'bold', align: 'center', margin: 'sm', wrap: true }
+      ],
+      backgroundColor: COLORS.white,
+      cornerRadius: '12px',
+      paddingAll: '16px',
+      margin: 'md'
+    }
+  ];
+
+  // 버튼이 있으면 바디에 추가
+  if (buttons.length > 0) {
+    bodyContents.push({
+      type: 'box',
+      layout: 'horizontal',
+      contents: buttons,
+      spacing: 'md',
+      margin: 'md'
+    });
+  }
 
   return {
     type: 'bubble',
@@ -774,48 +814,11 @@ function createMainCompositeBubble(result: ExtendedCompositeResult): any {
     body: {
       type: 'box',
       layout: 'vertical',
-      contents: [
-        { type: 'image', url: LOGO_URL, aspectRatio: '5:3', size: 'sm', aspectMode: 'fit' },
-        {
-          type: 'box',
-          layout: 'vertical',
-          contents: [
-            { type: 'text', text: title, size: 'md', color: COLORS.text, weight: 'bold', align: 'center', wrap: true },
-            { type: 'text', text: subtitle, size: 'xs', color: COLORS.subtext, align: 'center', margin: 'xs' },
-            { type: 'text', text: `조회기간: ${periodText}`, size: 'xs', color: COLORS.lightGray, align: 'center', margin: 'sm' },
-            { type: 'separator', margin: 'md', color: COLORS.border },
-            {
-              type: 'box',
-              layout: 'horizontal',
-              contents: [
-                { type: 'text', text: '총 매출', size: 'sm', color: COLORS.subtext },
-                { type: 'text', text: formatSalesMoney(summary.total_sales), size: 'lg', weight: 'bold', color: COLORS.text, align: 'end' }
-              ],
-              margin: 'md'
-            },
-            {
-              type: 'box',
-              layout: 'horizontal',
-              contents: [
-                { type: 'text', text: '월평균', size: 'sm', color: COLORS.subtext },
-                { type: 'text', text: formatSalesMoney(monthlyAvg), size: 'sm', weight: 'bold', color: COLORS.text, align: 'end' }
-              ],
-              margin: 'sm'
-            },
-            { type: 'separator', margin: 'md', color: COLORS.border },
-            { type: 'text', text: '월별 매출 추이', size: 'xs', color: COLORS.subtext, margin: 'md' },
-            { type: 'text', text: trendText, size: 'sm', color: COLORS.text, weight: 'bold', align: 'center', margin: 'sm', wrap: true }
-          ],
-          backgroundColor: COLORS.white,
-          cornerRadius: '12px',
-          paddingAll: '16px',
-          margin: 'md'
-        }
-      ],
+      contents: bodyContents,
       backgroundColor: COLORS.background,
       paddingAll: '12px'
     },
-    footer
+    footer: createFooter()
   };
 }
 

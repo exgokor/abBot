@@ -10,6 +10,7 @@ export const COLORS = {
   white: '#FFFFFF',         // 콘텐츠 상자 배경
   navy: '#1D3A8F',          // 버튼 primary
   lightBlue: '#DCEAF7',     // 버튼 secondary
+  buttonAlt: '#FFFCCC',     // 버튼 대체 색상 (연한 노랑)
   text: '#000000',          // 본문 텍스트
   subtext: '#666666',       // 보조 텍스트
   lightGray: '#999999',     // 비활성 텍스트
@@ -64,7 +65,7 @@ export function createFooter(): any {
 }
 
 /**
- * 버튼이 있는 푸터 생성 (AJUBIO 포함)
+ * 버튼이 있는 푸터 생성 (AJUBIO 포함) - 네이비 스타일
  */
 export function createButtonFooter(buttons: any[]): any {
   return {
@@ -82,12 +83,12 @@ export function createButtonFooter(buttons: any[]): any {
         text: 'AJUBIO',
         size: 'xxs',
         weight: 'bold',
-        color: COLORS.darkNavy,
+        color: COLORS.white,
         align: 'center',
         margin: 'sm',
       },
     ],
-    backgroundColor: COLORS.background,
+    backgroundColor: COLORS.darkNavy,
     paddingAll: '8px',
   };
 }

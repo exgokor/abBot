@@ -27,6 +27,13 @@ export async function handleTextMessage(request: TextMessageRequest): Promise<vo
 
   logger.info(`Text message from ${userId}: ${text}`);
 
+  // 환영 메시지 (시작하기, ? 입력 시)
+  const welcomeKeywords = ['시작하기', '?'];
+  if (welcomeKeywords.includes(text)) {
+    await sendWelcomeMessage(userId);
+    return;
+  }
+
   // 명령어 처리 (/, ! 로 시작하는 경우)
   if (text.startsWith('/') || text.startsWith('!')) {
     await handleCommand(userId, text);
@@ -129,6 +136,23 @@ async function handleDepth1Search(userId: string, keyword: string): Promise<void
   await sendFlexMessage(userId, carousel, `[${keyword}] 검색 완료`);
 
   logger.info(`Search carousel sent for "${keyword}" (${totalCount} results)`);
+}
+
+/**
+ * 환영 메시지 (시작하기, ? 입력 시)
+ */
+async function sendWelcomeMessage(userId: string): Promise<void> {
+  const welcomeMessage = `📱 매출조회 챗봇 사용법
+
+검색어를 입력하세요!
+
+🏥 병원명 입력 → 해당 병원 매출 조회
+👤 CSO명 입력 → 해당 CSO 매출 조회
+💊 품목명 입력 → 해당 품목 매출 조회
+
+예시: 서울대병원, 홍길동, 타이레놀`;
+
+  await sendTextMessage(userId, welcomeMessage);
 }
 
 /**
