@@ -273,7 +273,9 @@ export function createDetailBubble(options: DetailBubbleOptions): any {
 }
 
 /**
- * 기본 버튼 생성 (네이비 스타일)
+ * 기본 버튼 생성
+ * primary: #FFFCCC (연한 노랑) + 검정 글씨
+ * secondary: #DCEAF7 (연한 파랑) + 검정 글씨
  */
 export function createButton(label: string, postbackData: any, style: 'primary' | 'secondary' = 'primary'): any {
   return {
@@ -283,9 +285,9 @@ export function createButton(label: string, postbackData: any, style: 'primary' 
       label,
       data: JSON.stringify(postbackData),
     },
-    style,
+    style: 'secondary',  // 검정 글씨를 위해 secondary 사용
     height: 'sm',
-    color: style === 'primary' ? COLORS.navy : COLORS.lightBlue,
+    color: style === 'primary' ? COLORS.buttonAlt : COLORS.lightBlue,  // FFFCCC / DCEAF7
   };
 }
 

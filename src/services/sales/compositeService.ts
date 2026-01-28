@@ -616,8 +616,8 @@ export async function getDrugHospitalSalesExtended(
  * Depth3 복합 조회 결과용 단일 버블 생성
  */
 export function createCompositeBubble(result: CompositeResult): any {
-  const { title, subtitle, summary, monthlySales, periodMonths, periodText } = result;
-  const monthlyAvg = summary.total_sales / periodMonths;
+  const { title, subtitle, monthlySales, periodMonths, periodText } = result;
+  const monthlyAvg = result.summary.total_sales / periodMonths;
   const trendText = monthlySales.map(m => formatSalesMoney(m.total_sales)).join(' > ');
 
   return {
@@ -648,19 +648,10 @@ export function createCompositeBubble(result: CompositeResult): any {
               type: 'box',
               layout: 'horizontal',
               contents: [
-                { type: 'text', text: '총 매출', size: 'sm', color: COLORS.subtext },
-                { type: 'text', text: formatSalesMoney(summary.total_sales), size: 'lg', weight: 'bold', color: COLORS.text, align: 'end' }
+                { type: 'text', text: '월평균', size: 'sm', color: COLORS.subtext },
+                { type: 'text', text: formatSalesMoney(monthlyAvg), size: 'lg', weight: 'bold', color: COLORS.text, align: 'end' }
               ],
               margin: 'md'
-            },
-            {
-              type: 'box',
-              layout: 'horizontal',
-              contents: [
-                { type: 'text', text: '월평균', size: 'sm', color: COLORS.subtext },
-                { type: 'text', text: formatSalesMoney(monthlyAvg), size: 'sm', weight: 'bold', color: COLORS.text, align: 'end' }
-              ],
-              margin: 'sm'
             },
             { type: 'separator', margin: 'md', color: COLORS.border },
             { type: 'text', text: '월별 매출 추이', size: 'xs', color: COLORS.subtext, margin: 'md' },
@@ -718,7 +709,7 @@ function createMainCompositeBubble(result: ExtendedCompositeResult): any {
   // 네비게이션 버튼 생성 (바디에 배치)
   const buttons: any[] = [];
 
-  // 병원 전체보기 버튼 (연한 하늘색)
+  // 병원 전체보기 버튼 (연한 노랑)
   if (involvedEntities.hospital) {
     const { hos_cd, hos_cso_cd } = involvedEntities.hospital;
     buttons.push({
@@ -730,11 +721,11 @@ function createMainCompositeBubble(result: ExtendedCompositeResult): any {
       },
       style: 'secondary',
       height: 'sm',
-      color: COLORS.background  // #F0F8FF
+      color: COLORS.buttonAlt  // #FFFCCC
     });
   }
 
-  // CSO 전체보기 버튼 (연한 노랑)
+  // CSO 전체보기 버튼 (연한 파랑)
   if (involvedEntities.cso) {
     buttons.push({
       type: 'button',
@@ -745,7 +736,7 @@ function createMainCompositeBubble(result: ExtendedCompositeResult): any {
       },
       style: 'secondary',
       height: 'sm',
-      color: COLORS.buttonAlt  // #FFFCCC
+      color: COLORS.lightBlue  // #DCEAF7
     });
   }
 
@@ -764,19 +755,10 @@ function createMainCompositeBubble(result: ExtendedCompositeResult): any {
           type: 'box',
           layout: 'horizontal',
           contents: [
-            { type: 'text', text: '총 매출', size: 'sm', color: COLORS.subtext },
-            { type: 'text', text: formatSalesMoney(summary.total_sales), size: 'lg', weight: 'bold', color: COLORS.text, align: 'end' }
+            { type: 'text', text: '월평균', size: 'sm', color: COLORS.subtext },
+            { type: 'text', text: formatSalesMoney(monthlyAvg), size: 'lg', weight: 'bold', color: COLORS.text, align: 'end' }
           ],
           margin: 'md'
-        },
-        {
-          type: 'box',
-          layout: 'horizontal',
-          contents: [
-            { type: 'text', text: '월평균', size: 'sm', color: COLORS.subtext },
-            { type: 'text', text: formatSalesMoney(monthlyAvg), size: 'sm', weight: 'bold', color: COLORS.text, align: 'end' }
-          ],
-          margin: 'sm'
         },
         { type: 'separator', margin: 'md', color: COLORS.border },
         { type: 'text', text: '월별 매출 추이', size: 'xs', color: COLORS.subtext, margin: 'md' },
@@ -789,13 +771,16 @@ function createMainCompositeBubble(result: ExtendedCompositeResult): any {
     }
   ];
 
-  // 버튼이 있으면 바디에 추가
+  // 버튼이 있으면 흰색 둥근 상자로 감싸서 바디에 추가
   if (buttons.length > 0) {
     bodyContents.push({
       type: 'box',
       layout: 'horizontal',
       contents: buttons,
       spacing: 'md',
+      backgroundColor: COLORS.white,
+      cornerRadius: '12px',
+      paddingAll: '12px',
       margin: 'md'
     });
   }
