@@ -14,6 +14,7 @@ import {
   createDrugHospitalPostback,
   createDrugCsoPostback,
 } from '../../types/postback';
+import { getDrugInfo, createDrugInfoBubble, DrugInfo as DrugDetailInfo } from './drugInfoService';
 
 // 버블당 최대 버튼 수
 const MAX_BUTTONS_PER_BUBBLE = 5;
@@ -52,6 +53,7 @@ interface DrugInfo {
 
 export interface DrugSalesResult {
   drug: DrugInfo;
+  drugDetailInfo?: DrugDetailInfo;  // 의약품 상세 정보 (약가, 수수료율, 성분 등)
   summary: {
     total_sales: number;
     hospital_count: number;
@@ -91,7 +93,7 @@ export async function getDrugSales(drug_cd: string, period?: PeriodInfo): Promis
   const periodInfo = period || await getCurrentPeriod(3);
   const { startIndex, endIndex, periodText, periodMonths } = periodInfo;
 
-  // 병렬 쿼리 실행
+  // 병렬 쿼리 실행 (의약품 상세 정보 포함)
   const [
     monthlyResult,
     hospitalResult,
@@ -99,7 +101,8 @@ export async function getDrugSales(drug_cd: string, period?: PeriodInfo): Promis
     csoResult,
     csoMonthlyResult,
     hospitalCountResult,
-    csoCountResult
+    csoCountResult,
+    drugDetailInfo
   ] = await Promise.all([
     // 월별 매출
     pool.request()
@@ -225,7 +228,10 @@ export async function getDrugSales(drug_cd: string, period?: PeriodInfo): Promis
         FROM SALES_TBL
         WHERE drug_cd = @drug_cd
           AND sales_index BETWEEN @startIndex AND @endIndex
-      `)
+      `),
+
+    // 의약품 상세 정보 (약가, 수수료율, 성분 등)
+    getDrugInfo(drug_cd)
   ]);
 
   const monthlySales = monthlyResult.recordset as MonthlySalesData[];
@@ -286,6 +292,7 @@ export async function getDrugSales(drug_cd: string, period?: PeriodInfo): Promis
 
   return {
     drug,
+    drugDetailInfo: drugDetailInfo || undefined,
     summary: {
       total_sales: totalSales,
       hospital_count: hospitalCountData?.hospital_count || 0,
@@ -301,12 +308,15 @@ export async function getDrugSales(drug_cd: string, period?: PeriodInfo): Promis
 
 /**
  * DRUG Depth2 캐러셀 생성 (V2)
+ * - 의약품 정보 버블 (약가, 수수료율, 성분 등)
  * - 요약 버블
  * - 주요병원별 매출 버블 (최대 4개, 버블당 5개 버튼)
  * - 주요CSO별 매출 버블 (최대 2개)
+ * @param result 품목 매출 조회 결과
+ * @param isAdmin 관리자 여부 (true면 관리자용 수수료율 표시)
  */
-export function createDrugCarousel(result: DrugSalesResult): any {
-  const { drug, summary, monthlySales, topHospitals, topCsos, periodMonths, periodText } = result;
+export function createDrugCarousel(result: DrugSalesResult, isAdmin: boolean = false): any {
+  const { drug, drugDetailInfo, summary, monthlySales, topHospitals, topCsos, periodMonths, periodText } = result;
   const monthlyAvg = summary.total_sales / periodMonths;
   const trendText = monthlySales.map(m => formatSalesMoney(m.total_sales)).join(' > ');
 
@@ -314,7 +324,12 @@ export function createDrugCarousel(result: DrugSalesResult): any {
 
   const bubbles: any[] = [];
 
-  // 1. 요약 버블
+  // 1. 의약품 정보 버블 (맨 앞)
+  if (drugDetailInfo) {
+    bubbles.push(createDrugInfoBubble(drugDetailInfo, isAdmin));
+  }
+
+  // 2. 요약 버블
   bubbles.push(createSummaryBubble(drug, drugTitle, summary, monthlyAvg, trendText, periodText));
 
   // 2. 주요병원별 매출 버블들 (버블당 5개 버튼, 최대 4개 버블)

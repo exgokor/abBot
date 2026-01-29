@@ -17,6 +17,7 @@ import {
 import { getCurrentPeriod } from '../services/sales/periodService';
 import { withDbRetry } from '../utils/dbErrorHandler';
 import { handleDepth2 } from './postbackHandler';
+import { getUserPermission, UserRole } from '../middleware/permission';
 
 /**
  * 텍스트 메시지 처리
@@ -125,8 +126,16 @@ async function handleDepth1Search(userId: string, keyword: string): Promise<void
     const entity = getSingleEntity(searchResult);
     if (entity) {
       await sendTextMessage(userId, `"${entity.search_name}" 조회 중...`);
+
+      // DRUG 타입일 때 권한 조회 (관리자용 수수료율 표시 여부)
+      let isAdmin = false;
+      if (entity.entity_type === 'DRUG') {
+        const permission = await getUserPermission(userId);
+        isAdmin = permission?.role === UserRole.ADMIN || permission?.role === UserRole.SUPER_ADMIN;
+      }
+
       // Depth2 직접 호출
-      await handleDepth2(userId, entity.entity_type, entity.entity_cd, period);
+      await handleDepth2(userId, entity.entity_type, entity.entity_cd, period, isAdmin);
       return;
     }
   }

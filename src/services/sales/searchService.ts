@@ -228,7 +228,7 @@ function createCategoryBubble(
   keyword: string
 ): any {
   const buttons = items.map((item, index) => {
-    const label = getButtonLabel(item);
+    const label = getButtonLabel(item, items.length);
     const postbackData = createPostbackForItem(item);
 
     return {
@@ -337,8 +337,12 @@ function createCategoryBubble(
 /**
  * 버튼 라벨 생성
  */
-function getButtonLabel(item: SearchIndexResult): string {
-  // search_abbr이 있으면 우선 사용
+function getButtonLabel(item: SearchIndexResult, categoryItemCount: number): string {
+  // DRUG이고 2개 이상이면 search_name 사용 (용량 구분을 위해)
+  if (item.entity_type === 'DRUG' && categoryItemCount >= 2) {
+    return item.search_name;
+  }
+  // 그 외에는 search_abbr 우선 사용
   if (item.search_abbr) {
     return item.search_abbr;
   }

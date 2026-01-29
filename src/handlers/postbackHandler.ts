@@ -16,6 +16,7 @@ import {
 import { decodePostback, PostbackData, parseDepth3Code, Depth3EntityType } from '../types/postback';
 import { getCurrentPeriod } from '../services/sales/periodService';
 import { withDbRetry } from '../utils/dbErrorHandler';
+import { getUserPermission, UserRole } from '../middleware/permission';
 
 /**
  * Postback 메시지 처리
@@ -53,8 +54,12 @@ async function handleNewFormatPostback(userId: string, postback: PostbackData): 
 
   const period = await getCurrentPeriod(3);
 
+  // 권한 조회 (DRUG 타입일 때 관리자 수수료율 표시 여부 결정)
+  const permission = await getUserPermission(userId);
+  const isAdmin = permission?.role === UserRole.ADMIN || permission?.role === UserRole.SUPER_ADMIN;
+
   if (depth === 2) {
-    await handleDepth2(userId, type, code, period);
+    await handleDepth2(userId, type, code, period, isAdmin);
   } else if (depth === 3) {
     await handleDepth3(userId, type, code, period);
   } else {
@@ -66,12 +71,14 @@ async function handleNewFormatPostback(userId: string, postback: PostbackData): 
 /**
  * Depth2 단일 엔티티 조회
  * @export textHandler에서 단일 검색결과 시 직접 호출
+ * @param isAdmin 관리자 여부 (DRUG 조회 시 관리자용 수수료율 표시)
  */
 export async function handleDepth2(
   userId: string,
   type: string,
   code: string,
-  period: any
+  period: any,
+  isAdmin: boolean = false
 ): Promise<void> {
   switch (type) {
     case 'CSO': {
@@ -100,7 +107,7 @@ export async function handleDepth2(
     case 'DRUG': {
       const result = await withDbRetry(userId, () => getDrugSales(code, period), '품목 조회');
       if (result) {
-        const carousel = createDrugCarousel(result);
+        const carousel = createDrugCarousel(result, isAdmin);
         await sendFlexMessage(userId, carousel, `[${result.drug.drug_name}] 품목 조회`);
       }
       break;
@@ -242,6 +249,13 @@ async function handleLegacyPostback(userId: string, data: any): Promise<void> {
   if (action === 'search_select') {
     const period = await getCurrentPeriod(3);
 
+    // drug 타입일 때 권한 조회 필요
+    let isAdmin = false;
+    if (type === 'drug') {
+      const permission = await getUserPermission(userId);
+      isAdmin = permission?.role === UserRole.ADMIN || permission?.role === UserRole.SUPER_ADMIN;
+    }
+
     switch (type) {
       case 'cso':
         await handleDepth2(userId, 'CSO', value, period);
@@ -250,7 +264,7 @@ async function handleLegacyPostback(userId: string, data: any): Promise<void> {
         await handleDepth2(userId, 'HOSPITAL', value, period);
         break;
       case 'drug':
-        await handleDepth2(userId, 'DRUG', value, period);
+        await handleDepth2(userId, 'DRUG', value, period, isAdmin);
         break;
       default:
         await sendTextMessage(userId, `알 수 없는 검색 타입: ${type}`);
