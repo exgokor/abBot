@@ -1,0 +1,815 @@
+/* ========================================
+   색상 팔레트 (CLAUDE.md 기준)
+   ======================================== */
+:root {
+  --dark-navy: #0D1B4C;    /* 헤더/푸터 */
+  --background: #F0F8FF;   /* 본문 배경 */
+  --white: #FFFFFF;        /* 카드 배경 */
+  --navy: #1D3A8F;         /* 버튼 primary */
+  --light-blue: #DCEAF7;   /* 버튼 secondary */
+  --text: #000000;         /* 본문 텍스트 */
+  --subtext: #666666;      /* 보조 텍스트 */
+  --light-gray: #999999;   /* 비활성 텍스트 */
+  --border: #E5E5E5;       /* 구분선 */
+  --danger: #DC3545;       /* 삭제 버튼 */
+  --success: #28A745;      /* 성공 */
+}
+
+/* ========================================
+   기본 리셋 및 전역 스타일
+   ======================================== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--text);
+  background-color: var(--background);
+  min-height: 100vh;
+}
+
+body {
+  padding-bottom: 70px; /* 하단 고정 버튼 공간 */
+}
+
+/* ========================================
+   로딩 스피너
+   ======================================== */
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.9);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid var(--border);
+  border-top-color: var(--navy);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-overlay p {
+  margin-top: 12px;
+  color: var(--subtext);
+}
+
+/* ========================================
+   헤더
+   ======================================== */
+.header {
+  position: sticky;
+  top: 0;
+  background: var(--dark-navy);
+  color: var(--white);
+  padding: 12px 16px;
+  z-index: 100;
+}
+
+.header-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.header-logo {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: var(--white);
+  padding: 4px;
+}
+
+.header-text {
+  flex: 1;
+}
+
+.header h1 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.header-subtitle {
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+/* ========================================
+   메인 콘텐츠
+   ======================================== */
+.main-content {
+  padding: 16px;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+/* ========================================
+   담당 카드 (품목별 그룹)
+   ======================================== */
+.block-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.drug-group {
+  background: var(--white);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+.drug-group-header {
+  background: var(--light-blue);
+  padding: 12px 16px;
+  font-weight: 600;
+  font-size: 17px;
+  color: var(--navy);
+  border-bottom: 1px solid var(--border);
+}
+
+.block-card {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.block-card:last-child {
+  border-bottom: none;
+}
+
+.block-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.block-card-row:last-child {
+  margin-bottom: 0;
+}
+
+.block-card-label {
+  font-size: 14px;
+  color: var(--subtext);
+  min-width: 60px;
+}
+
+.block-card-value {
+  flex: 1;
+  text-align: right;
+  font-size: 16px;
+}
+
+.block-card-value.readonly {
+  color: var(--text);
+}
+
+/* 수정 가능한 입력 필드 */
+.block-card-input {
+  width: 120px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 16px;
+  text-align: right;
+}
+
+.block-card-input:focus {
+  outline: none;
+  border-color: var(--navy);
+}
+
+/* 종료년월 선택 그룹 */
+.end-date-group {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.end-date-select {
+  width: 85px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 16px;
+  background: var(--white);
+}
+
+.end-date-select:focus {
+  outline: none;
+  border-color: var(--navy);
+}
+
+/* 삭제 버튼 */
+.block-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.btn-delete {
+  background: var(--white);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  padding: 10px 18px;
+  border-radius: 6px;
+  font-size: 15px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-delete:hover {
+  background: var(--danger);
+  color: var(--white);
+}
+
+/* ========================================
+   빈 메시지
+   ======================================== */
+.empty-message {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--subtext);
+}
+
+.empty-message p {
+  font-size: 17px;
+}
+
+/* ========================================
+   하단 고정 버튼
+   ======================================== */
+.footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--white);
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  z-index: 100;
+}
+
+/* ========================================
+   버튼 스타일
+   ======================================== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 22px;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-full {
+  width: 100%;
+}
+
+.btn-primary {
+  background: var(--navy);
+  color: var(--white);
+}
+
+.btn-primary:hover {
+  background: var(--dark-navy);
+}
+
+.btn-secondary {
+  background: var(--light-blue);
+  color: var(--navy);
+}
+
+.btn-secondary:hover {
+  background: #c5ddf0;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: var(--white);
+}
+
+.btn-danger:hover {
+  background: #c82333;
+}
+
+/* ========================================
+   모달
+   ======================================== */
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal-backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.modal-content {
+  position: relative;
+  background: var(--white);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 400px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+}
+
+.modal-header {
+  padding: 20px 20px 0;
+}
+
+.modal-header h2 {
+  font-size: 20px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.modal-body {
+  padding: 20px;
+}
+
+.modal-footer {
+  padding: 0 20px 20px;
+  display: flex;
+  gap: 12px;
+}
+
+.modal-footer .btn {
+  flex: 1;
+}
+
+/* 삭제 모달 스타일 */
+.delete-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.tag {
+  background: var(--light-blue);
+  color: var(--navy);
+  padding: 8px 14px;
+  border-radius: 20px;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.delete-confirm-text {
+  text-align: center;
+  font-size: 16px;
+  color: var(--subtext);
+}
+
+/* ========================================
+   폼 스타일
+   ======================================== */
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--subtext);
+  margin-bottom: 8px;
+}
+
+.form-control {
+  width: 100%;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 16px;
+  background: var(--white);
+  transition: border-color 0.2s;
+}
+
+.form-control:focus {
+  outline: none;
+  border-color: var(--navy);
+}
+
+.date-select-group {
+  display: flex;
+  gap: 8px;
+}
+
+.date-select-group .form-control {
+  flex: 1;
+}
+
+/* ========================================
+   자동완성 (CSO 검색)
+   ======================================== */
+.autocomplete-wrapper {
+  position: relative;
+}
+
+.suggestions-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 10;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.suggestion-item {
+  padding: 12px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.2s;
+}
+
+.suggestion-item:last-child {
+  border-bottom: none;
+}
+
+.suggestion-item:hover {
+  background: var(--light-blue);
+}
+
+.suggestion-name {
+  font-weight: 500;
+  font-size: 16px;
+}
+
+.suggestion-corp {
+  font-size: 14px;
+  color: var(--subtext);
+  margin-top: 2px;
+}
+
+.selected-info {
+  margin-top: 8px;
+  padding: 12px 14px;
+  background: var(--light-blue);
+  border-radius: 6px;
+  font-size: 15px;
+  color: var(--navy);
+}
+
+/* ========================================
+   토스트 메시지
+   ======================================== */
+.toast {
+  position: fixed;
+  bottom: 90px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--dark-navy);
+  color: var(--white);
+  padding: 14px 26px;
+  border-radius: 8px;
+  font-size: 15px;
+  z-index: 2000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  animation: fadeInUp 0.3s ease;
+}
+
+.toast.success {
+  background: var(--success);
+}
+
+.toast.error {
+  background: var(--danger);
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+/* ========================================
+   반응형 (태블릿/데스크탑)
+   ======================================== */
+@media (min-width: 768px) {
+  .header {
+    padding: 20px 24px;
+  }
+
+  .header h1 {
+    font-size: 22px;
+  }
+
+  .main-content {
+    padding: 24px;
+    max-width: 700px;
+  }
+
+  .block-card {
+    padding: 20px;
+  }
+
+  .modal-content {
+    max-width: 480px;
+  }
+}
+
+/* ========================================
+   진료과 Chips (기간 표시 포함)
+   ======================================== */
+.disease-chips-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.disease-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--light-blue);
+  color: var(--navy);
+  padding: 10px 14px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 2px solid transparent;
+}
+
+.disease-chip:hover {
+  border-color: var(--navy);
+}
+
+/* 진료과 Chip 내부 구조 */
+.disease-chip-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.disease-name {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.disease-period {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+/* 종료된 진료과 */
+.disease-chip.ended {
+  background: #f5f5f5;
+  color: var(--light-gray);
+  border-color: var(--border);
+}
+
+.disease-chip.ended .disease-name {
+  text-decoration: line-through;
+}
+
+.disease-chip.ended:hover {
+  border-color: var(--light-gray);
+}
+
+/* 새로 추가된 진료과 */
+.disease-chip.added {
+  background: #e8f5e9;
+  color: var(--success);
+  border-color: var(--success);
+}
+
+/* 수정된 진료과 */
+.disease-chip.modified {
+  background: #fff3e0;
+  color: #e65100;
+  border-color: #ff9800;
+}
+
+/* 삭제 예정 진료과 */
+.disease-chip.deleted {
+  background: #ffebee;
+  color: var(--danger);
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+/* 종료(X) 버튼 */
+.disease-chip-end {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: rgba(0, 0, 0, 0.1);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: bold;
+  line-height: 1;
+  padding: 0;
+  color: inherit;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.disease-chip-end:hover {
+  background: var(--danger);
+  color: var(--white);
+}
+
+.disease-chip.ended .disease-chip-end {
+  display: none;
+}
+
+/* 진료과 추가 버튼 */
+.disease-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--navy);
+  border: 2px dashed var(--border);
+  padding: 10px 16px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.disease-add-btn:hover {
+  border-color: var(--navy);
+  background: var(--light-blue);
+}
+
+/* ========================================
+   변경사항 바
+   ======================================== */
+.changes-bar {
+  position: fixed;
+  bottom: 70px;
+  left: 0;
+  right: 0;
+  background: var(--dark-navy);
+  color: var(--white);
+  padding: 12px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 99;
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.changes-bar span {
+  font-size: 15px;
+}
+
+.changes-bar .btn {
+  padding: 10px 22px;
+  font-size: 15px;
+}
+
+/* ========================================
+   CSO 카드 새 디자인
+   ======================================== */
+.cso-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.cso-info {
+  flex: 1;
+}
+
+.cso-name {
+  font-weight: 600;
+  font-size: 17px;
+  color: var(--text);
+}
+
+.cso-corp {
+  font-size: 14px;
+  color: var(--subtext);
+  margin-top: 2px;
+}
+
+.cso-start {
+  font-size: 14px;
+  color: var(--light-gray);
+  margin-top: 4px;
+}
+
+.block-card-field {
+  margin-bottom: 12px;
+}
+
+.block-card-field:last-child {
+  margin-bottom: 0;
+}
+
+/* 삭제 예정 오버레이 */
+.deleted-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--danger);
+  color: var(--white);
+  padding: 10px 18px;
+  border-radius: 4px;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.block-card {
+  position: relative;
+}
+
+.field-label {
+  font-size: 14px;
+  color: var(--subtext);
+  margin-bottom: 8px;
+}
+
+/* ========================================
+   유틸리티 클래스
+   ======================================== */
+.hidden {
+  display: none !important;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.text-danger {
+  color: var(--danger);
+}
+
+.text-success {
+  color: var(--success);
+}
+
+.mt-1 { margin-top: 4px; }
+.mt-2 { margin-top: 8px; }
+.mt-3 { margin-top: 12px; }
+.mt-4 { margin-top: 16px; }
+
+.mb-1 { margin-bottom: 4px; }
+.mb-2 { margin-bottom: 8px; }
+.mb-3 { margin-bottom: 12px; }
+.mb-4 { margin-bottom: 16px; }

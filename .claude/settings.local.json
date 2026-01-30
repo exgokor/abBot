@@ -21,7 +21,8 @@
       "Bash(find:*)",
       "Bash(cd:*)",
       "Read(//c/**)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(npm uninstall:*)"
     ]
   }
 }

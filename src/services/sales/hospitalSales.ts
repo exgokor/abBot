@@ -14,6 +14,7 @@ import {
   createHospitalDrugPostback,
   createHospitalCsoPostback,
 } from '../../types/postback';
+import { createPageToken } from '../token/pageToken';
 
 // 버블당 최대 버튼 수
 const MAX_BUTTONS_PER_BUBBLE = 5;
@@ -333,8 +334,13 @@ export async function getHospitalSales(
  * - 요약 버블
  * - 주요품목별 매출 버블 (최대 2개, 버블당 5개 버튼)
  * - 주요CSO별 매출 버블 (최대 2개)
+ * @param result 병원 매출 결과
+ * @param options 추가 옵션 (isSuperAdmin, userId)
  */
-export async function createHospitalCarousel(result: HospitalSalesResult): Promise<any[]> {
+export async function createHospitalCarousel(
+  result: HospitalSalesResult,
+  options?: { isSuperAdmin?: boolean; userId?: string }
+): Promise<any[]> {
   const { hospital, summary, monthlySales, topDrugs, topCsos, periodMonths, periodText } = result;
   const monthlyAvg = summary.total_sales / periodMonths;
   const trendText = monthlySales.map(m => formatSalesMoney(m.total_sales)).join(' > ');
@@ -343,8 +349,21 @@ export async function createHospitalCarousel(result: HospitalSalesResult): Promi
 
   const bubbles: any[] = [];
 
+  // SUPER_ADMIN인 경우 블록 수정 URL 생성
+  let blockEditUrl: string | null = null;
+  if (options?.isSuperAdmin && options?.userId) {
+    const { uuid, token } = await createPageToken(
+      hospital.hos_cd,
+      hospital.hos_cso_cd,
+      options.userId,
+      60 // 60분 유효
+    );
+    const baseUrl = process.env.APP_URL || 'https://ajubio-bot-725057943983.asia-northeast3.run.app';
+    blockEditUrl = `${baseUrl}/blocks?uuid=${uuid}&token=${token}`;
+  }
+
   // 1. 요약 버블
-  bubbles.push(createSummaryBubble(hospital, hospitalTitle, summary, monthlyAvg, trendText, periodText));
+  bubbles.push(createSummaryBubble(hospital, hospitalTitle, summary, monthlyAvg, trendText, periodText, blockEditUrl));
 
   // 2. 블록현황 버블들
   const blocks = await getHospitalBlocks(hospital.hos_cd, hospital.hos_cso_cd);
@@ -386,8 +405,38 @@ function createSummaryBubble(
   summary: HospitalSalesResult['summary'],
   monthlyAvg: number,
   trendText: string,
-  periodText: string
+  periodText: string,
+  blockEditUrl?: string | null
 ): any {
+  // 푸터 콘텐츠 생성
+  const footerContents: any[] = [];
+
+  // SUPER_ADMIN인 경우 블록 수정 버튼 추가
+  if (blockEditUrl) {
+    footerContents.push({
+      type: 'button',
+      action: {
+        type: 'uri',
+        label: '블록 수정',
+        uri: blockEditUrl,
+      },
+      style: 'primary',
+      height: 'sm',
+      color: COLORS.navy,
+    });
+  }
+
+  // 기본 AJUBIO 텍스트
+  footerContents.push({
+    type: 'text',
+    text: 'AJUBIO',
+    size: 'xxs',
+    weight: 'bold',
+    color: COLORS.white,
+    align: 'center',
+    margin: blockEditUrl ? 'sm' : 'none',
+  });
+
   return {
     type: 'bubble',
     header: {
@@ -453,9 +502,9 @@ function createSummaryBubble(
     footer: {
       type: 'box',
       layout: 'vertical',
-      contents: [{ type: 'text', text: 'AJUBIO', size: 'xxs', weight: 'bold', color: COLORS.white, align: 'center' }],
+      contents: footerContents,
       backgroundColor: COLORS.darkNavy,
-      paddingAll: '6px'
+      paddingAll: blockEditUrl ? '8px' : '6px'
     }
   };
 }

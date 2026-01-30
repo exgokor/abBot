@@ -57,9 +57,10 @@ async function handleNewFormatPostback(userId: string, postback: PostbackData): 
   // 권한 조회 (DRUG 타입일 때 관리자 수수료율 표시 여부 결정)
   const permission = await getUserPermission(userId);
   const isAdmin = permission?.role === UserRole.ADMIN || permission?.role === UserRole.SUPER_ADMIN;
+  const isSuperAdmin = permission?.role === UserRole.SUPER_ADMIN;
 
   if (depth === 2) {
-    await handleDepth2(userId, type, code, period, isAdmin);
+    await handleDepth2(userId, type, code, period, isAdmin, isSuperAdmin);
   } else if (depth === 3) {
     await handleDepth3(userId, type, code, period);
   } else {
@@ -72,13 +73,15 @@ async function handleNewFormatPostback(userId: string, postback: PostbackData): 
  * Depth2 단일 엔티티 조회
  * @export textHandler에서 단일 검색결과 시 직접 호출
  * @param isAdmin 관리자 여부 (DRUG 조회 시 관리자용 수수료율 표시)
+ * @param isSuperAdmin SUPER_ADMIN 여부 (HOSPITAL 조회 시 블록 수정 버튼 표시)
  */
 export async function handleDepth2(
   userId: string,
   type: string,
   code: string,
   period: any,
-  isAdmin: boolean = false
+  isAdmin: boolean = false,
+  isSuperAdmin: boolean = false
 ): Promise<void> {
   switch (type) {
     case 'CSO': {
@@ -95,7 +98,10 @@ export async function handleDepth2(
       const result = await withDbRetry(userId, () => getHospitalSales(hos_cd, hos_cso_cd, period), '병원 조회');
       if (result) {
         const hospitalName = result.hospital.hos_abbr || result.hospital.hos_name;
-        const carousels = await createHospitalCarousel(result);
+        const carousels = await createHospitalCarousel(result, {
+          isSuperAdmin,
+          userId,
+        });
         // 캐러셀이 여러 개면 순차적으로 전송 (NaverWorks 10개 버블 제한)
         for (const carousel of carousels) {
           await sendFlexMessage(userId, carousel, `[${hospitalName}] 병원 조회`);
@@ -249,19 +255,17 @@ async function handleLegacyPostback(userId: string, data: any): Promise<void> {
   if (action === 'search_select') {
     const period = await getCurrentPeriod(3);
 
-    // drug 타입일 때 권한 조회 필요
-    let isAdmin = false;
-    if (type === 'drug') {
-      const permission = await getUserPermission(userId);
-      isAdmin = permission?.role === UserRole.ADMIN || permission?.role === UserRole.SUPER_ADMIN;
-    }
+    // 권한 조회 (drug, hospital 타입에서 필요)
+    const permission = await getUserPermission(userId);
+    const isAdmin = permission?.role === UserRole.ADMIN || permission?.role === UserRole.SUPER_ADMIN;
+    const isSuperAdmin = permission?.role === UserRole.SUPER_ADMIN;
 
     switch (type) {
       case 'cso':
         await handleDepth2(userId, 'CSO', value, period);
         break;
       case 'hospital':
-        await handleDepth2(userId, 'HOSPITAL', value, period);
+        await handleDepth2(userId, 'HOSPITAL', value, period, false, isSuperAdmin);
         break;
       case 'drug':
         await handleDepth2(userId, 'DRUG', value, period, isAdmin);
