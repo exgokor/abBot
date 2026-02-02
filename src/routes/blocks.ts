@@ -18,20 +18,34 @@ const router = Router();
  * GET /blocks?uuid=xxx&token=xxx
  */
 router.get('/blocks', async (req: Request, res: Response) => {
+  logger.info(`[blocks] GET /blocks 요청 수신 - uuid: ${req.query.uuid}`);
+
   const { uuid, token } = req.query;
 
   if (!uuid || !token) {
+    logger.warn('[blocks] uuid 또는 token 누락');
     return res.status(400).send('잘못된 접근입니다.');
   }
 
   // 토큰 검증
   const tokenData = await validatePageToken(uuid as string, token as string);
   if (!tokenData) {
+    logger.warn(`[blocks] 토큰 검증 실패 - uuid: ${uuid}`);
     return res.status(401).send('유효하지 않거나 만료된 링크입니다.');
   }
 
+  logger.info(`[blocks] 토큰 검증 성공 - hos_cd: ${tokenData.hos_cd}`);
+
   // 페이지 서빙
-  res.sendFile(path.join(__dirname, '../public/index.html'));
+  const filePath = path.join(__dirname, '../public/index.html');
+  logger.info(`[blocks] 파일 경로: ${filePath}`);
+
+  res.sendFile(filePath, (err) => {
+    if (err) {
+      logger.error(`[blocks] 파일 서빙 실패: ${err.message}`);
+      res.status(404).send('페이지를 찾을 수 없습니다.');
+    }
+  });
 });
 
 /**
