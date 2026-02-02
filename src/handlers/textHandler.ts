@@ -127,15 +127,13 @@ async function handleDepth1Search(userId: string, keyword: string): Promise<void
     if (entity) {
       await sendTextMessage(userId, `"${entity.search_name}" 조회 중...`);
 
-      // DRUG 타입일 때 권한 조회 (관리자용 수수료율 표시 여부)
-      let isAdmin = false;
-      if (entity.entity_type === 'DRUG') {
-        const permission = await getUserPermission(userId);
-        isAdmin = permission?.role === UserRole.ADMIN || permission?.role === UserRole.SUPER_ADMIN;
-      }
+      // 권한 조회 (DRUG: 관리자용 수수료율, HOSPITAL: 블록 수정 버튼)
+      const permission = await getUserPermission(userId);
+      const isAdmin = permission?.role === UserRole.ADMIN || permission?.role === UserRole.SUPER_ADMIN;
+      const isSuperAdmin = permission?.role === UserRole.SUPER_ADMIN;
 
       // Depth2 직접 호출
-      await handleDepth2(userId, entity.entity_type, entity.entity_cd, period, isAdmin);
+      await handleDepth2(userId, entity.entity_type, entity.entity_cd, period, isAdmin, isSuperAdmin);
       return;
     }
   }
