@@ -63,7 +63,7 @@ export async function validatePageToken(
   const checkResult = await pool.request()
     .input('uuid', sql.NVarChar, uuid)
     .query(`
-      SELECT uuid, token, hos_cd, hos_cso_cd, user_id, expires_at, GETDATE() as now
+      SELECT uuid, token, hos_cd, hos_cso_cd, user_id, expires_at, GETUTCDATE() as now
       FROM PageTokens
       WHERE uuid = @uuid
     `);
