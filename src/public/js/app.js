@@ -153,6 +153,7 @@ const elements = {
   addDisease: document.getElementById('addDisease'),
   addStartYear: document.getElementById('addStartYear'),
   addStartMonth: document.getElementById('addStartMonth'),
+  addIsFirst: document.getElementById('addIsFirst'),
   btnAddCancel: document.getElementById('btnAddCancel'),
   btnAddConfirm: document.getElementById('btnAddConfirm'),
 
@@ -767,6 +768,9 @@ function handleAddClick() {
   generateYearOptions(elements.addStartYear, new Date().getFullYear());
   generateMonthOptions(elements.addStartMonth, new Date().getMonth() + 1);
 
+  // 최초등록 체크박스 초기화
+  elements.addIsFirst.checked = false;
+
   state.selectedCso = null;
 
   // 모달 표시
@@ -856,6 +860,8 @@ async function handleAddConfirm() {
   }
 
   try {
+    const isFirst = elements.addIsFirst.checked;
+
     await apiRequest('/api/blocks', {
       method: 'POST',
       body: JSON.stringify({
@@ -868,6 +874,7 @@ async function handleAddConfirm() {
         start_month: parseInt(startMonth),
         end_year: 2099,
         end_month: 12,
+        isFirst: isFirst,
       }),
     });
 

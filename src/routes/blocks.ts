@@ -165,7 +165,7 @@ router.post('/api/blocks', async (req: Request, res: Response) => {
       return res.status(401).json({ message: '유효하지 않거나 만료된 토큰입니다.' });
     }
 
-    const { drug_cd, cso_cd, disease_type, start_year, start_month, end_year, end_month } = req.body;
+    const { drug_cd, cso_cd, disease_type, start_year, start_month, end_year, end_month, isFirst } = req.body;
     const { hos_cd, hos_cso_cd } = tokenData;
 
     const pool = await getConnection();
@@ -183,6 +183,10 @@ router.post('/api/blocks', async (req: Request, res: Response) => {
 
     const newSeq = seqResult.recordset[0].new_seq.toString();
 
+    // index 계산
+    const start_index = start_year * 12 + start_month - 1;
+    const end_index = end_year * 12 + end_month - 1;
+
     // 블록 추가
     await pool.request()
       .input('hos_cd', sql.NVarChar, hos_cd)
@@ -193,11 +197,15 @@ router.post('/api/blocks', async (req: Request, res: Response) => {
       .input('disease_type', sql.NVarChar, disease_type || null)
       .input('start_year', sql.Int, start_year)
       .input('start_month', sql.Int, start_month)
+      .input('start_index', sql.Int, start_index)
       .input('end_year', sql.Int, end_year)
       .input('end_month', sql.Int, end_month)
+      .input('end_index', sql.Int, end_index)
+      .input('block_isvalid', sql.NVarChar, 'Y')
+      .input('isFirst', sql.NVarChar, isFirst ? 'Y' : 'N')
       .query(`
-        INSERT INTO BLOCK_TBL (hos_cd, hos_cso_cd, drug_cd, seq, cso_cd, disease_type, start_year, start_month, end_year, end_month)
-        VALUES (@hos_cd, @hos_cso_cd, @drug_cd, @seq, @cso_cd, @disease_type, @start_year, @start_month, @end_year, @end_month)
+        INSERT INTO BLOCK_TBL (hos_cd, hos_cso_cd, drug_cd, seq, cso_cd, disease_type, start_year, start_month, start_index, end_year, end_month, end_index, block_isvalid, isFirst)
+        VALUES (@hos_cd, @hos_cso_cd, @drug_cd, @seq, @cso_cd, @disease_type, @start_year, @start_month, @start_index, @end_year, @end_month, @end_index, @block_isvalid, @isFirst)
       `);
 
     logger.info(`Block added: ${hos_cd}|${hos_cso_cd}|${drug_cd}|${newSeq}`);
@@ -231,6 +239,10 @@ router.post('/api/blocks/batch', async (req: Request, res: Response) => {
     for (const change of diseases || []) {
       const [drug_cd, seq] = change.blockKey.split('|');
 
+      // index 계산
+      const start_index = change.start_year * 12 + change.start_month - 1;
+      const end_index = change.end_year * 12 + change.end_month - 1;
+
       if (change.action === 'add') {
         // 진료과 추가
         await pool.request()
@@ -241,11 +253,14 @@ router.post('/api/blocks/batch', async (req: Request, res: Response) => {
           .input('disease_type', sql.NVarChar, change.disease_type)
           .input('start_year', sql.Int, change.start_year)
           .input('start_month', sql.Int, change.start_month)
+          .input('start_index', sql.Int, start_index)
           .input('end_year', sql.Int, change.end_year)
           .input('end_month', sql.Int, change.end_month)
+          .input('end_index', sql.Int, end_index)
+          .input('block_isvalid', sql.NVarChar, 'Y')
           .query(`
-            INSERT INTO BLOCK_TBL (hos_cd, hos_cso_cd, drug_cd, seq, cso_cd, disease_type, start_year, start_month, end_year, end_month)
-            SELECT @hos_cd, @hos_cso_cd, @drug_cd, @seq, cso_cd, @disease_type, @start_year, @start_month, @end_year, @end_month
+            INSERT INTO BLOCK_TBL (hos_cd, hos_cso_cd, drug_cd, seq, cso_cd, disease_type, start_year, start_month, start_index, end_year, end_month, end_index, block_isvalid, isFirst)
+            SELECT @hos_cd, @hos_cso_cd, @drug_cd, @seq, cso_cd, @disease_type, @start_year, @start_month, @start_index, @end_year, @end_month, @end_index, @block_isvalid, isFirst
             FROM BLOCK_TBL
             WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd AND drug_cd = @drug_cd AND seq = @seq
             AND NOT EXISTS (
@@ -263,11 +278,14 @@ router.post('/api/blocks/batch', async (req: Request, res: Response) => {
           .input('disease_type', sql.NVarChar, change.disease_type)
           .input('start_year', sql.Int, change.start_year)
           .input('start_month', sql.Int, change.start_month)
+          .input('start_index', sql.Int, start_index)
           .input('end_year', sql.Int, change.end_year)
           .input('end_month', sql.Int, change.end_month)
+          .input('end_index', sql.Int, end_index)
           .query(`
             UPDATE BLOCK_TBL
-            SET start_year = @start_year, start_month = @start_month, end_year = @end_year, end_month = @end_month
+            SET start_year = @start_year, start_month = @start_month, start_index = @start_index,
+                end_year = @end_year, end_month = @end_month, end_index = @end_index
             WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd AND drug_cd = @drug_cd AND seq = @seq AND disease_type = @disease_type
           `);
       }
