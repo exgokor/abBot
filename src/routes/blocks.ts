@@ -204,8 +204,8 @@ router.post('/api/blocks', async (req: Request, res: Response) => {
       .input('block_isvalid', sql.NVarChar, 'Y')
       .input('isFirst', sql.NVarChar, isFirst ? 'Y' : 'N')
       .query(`
-        INSERT INTO BLOCK_TBL (hos_cd, hos_cso_cd, drug_cd, seq, cso_cd, disease_type, start_year, start_month, start_index, end_year, end_month, end_index, block_isvalid, isFirst)
-        VALUES (@hos_cd, @hos_cso_cd, @drug_cd, @seq, @cso_cd, @disease_type, @start_year, @start_month, @start_index, @end_year, @end_month, @end_index, @block_isvalid, @isFirst)
+        INSERT INTO BLOCK_TBL (hos_cd, hos_cso_cd, drug_cd, seq, cso_cd, disease_type, start_year, start_month, start_index, end_year, end_month, end_index, block_isvalid, isFirst, update_at)
+        VALUES (@hos_cd, @hos_cso_cd, @drug_cd, @seq, @cso_cd, @disease_type, @start_year, @start_month, @start_index, @end_year, @end_month, @end_index, @block_isvalid, @isFirst, DATEADD(HOUR, 9, GETUTCDATE()))
       `);
 
     logger.info(`Block added: ${hos_cd}|${hos_cso_cd}|${drug_cd}|${newSeq}`);
@@ -259,8 +259,8 @@ router.post('/api/blocks/batch', async (req: Request, res: Response) => {
           .input('end_index', sql.Int, end_index)
           .input('block_isvalid', sql.NVarChar, 'Y')
           .query(`
-            INSERT INTO BLOCK_TBL (hos_cd, hos_cso_cd, drug_cd, seq, cso_cd, disease_type, start_year, start_month, start_index, end_year, end_month, end_index, block_isvalid, isFirst)
-            SELECT @hos_cd, @hos_cso_cd, @drug_cd, @seq, cso_cd, @disease_type, @start_year, @start_month, @start_index, @end_year, @end_month, @end_index, @block_isvalid, isFirst
+            INSERT INTO BLOCK_TBL (hos_cd, hos_cso_cd, drug_cd, seq, cso_cd, disease_type, start_year, start_month, start_index, end_year, end_month, end_index, block_isvalid, isFirst, update_at)
+            SELECT @hos_cd, @hos_cso_cd, @drug_cd, @seq, cso_cd, @disease_type, @start_year, @start_month, @start_index, @end_year, @end_month, @end_index, @block_isvalid, isFirst, DATEADD(HOUR, 9, GETUTCDATE())
             FROM BLOCK_TBL
             WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd AND drug_cd = @drug_cd AND seq = @seq
             AND NOT EXISTS (
@@ -285,7 +285,8 @@ router.post('/api/blocks/batch', async (req: Request, res: Response) => {
           .query(`
             UPDATE BLOCK_TBL
             SET start_year = @start_year, start_month = @start_month, start_index = @start_index,
-                end_year = @end_year, end_month = @end_month, end_index = @end_index
+                end_year = @end_year, end_month = @end_month, end_index = @end_index,
+                update_at = DATEADD(HOUR, 9, GETUTCDATE())
             WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd AND drug_cd = @drug_cd AND seq = @seq AND disease_type = @disease_type
           `);
       }
