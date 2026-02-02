@@ -105,7 +105,7 @@ router.get('/api/blocks', async (req: Request, res: Response) => {
           b.seq, b.cso_cd, c.cso_dealer_nm, c.cso_corp_nm,
           b.disease_type, b.start_year, b.start_month, b.end_year, b.end_month
         FROM BLOCK_TBL b
-        LEFT JOIN DRUG_TBL d ON b.drug_cd = d.drug_cd
+        LEFT JOIN DRUG_TBL d ON b.drug_cd = d.drug_cd AND d.end_index = 1199
         LEFT JOIN CSO_TBL c ON b.cso_cd = c.cso_cd
         WHERE b.hos_cd = @hos_cd AND b.hos_cso_cd = @hos_cso_cd
         ORDER BY d.drug_name, b.seq, b.disease_type
