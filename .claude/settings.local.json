@@ -22,7 +22,9 @@
       "Bash(cd:*)",
       "Read(//c/**)",
       "Bash(npx tsc:*)",
-      "Bash(npm uninstall:*)"
+      "Bash(npm uninstall:*)",
+      "Bash(timeout 5 npm start:*)",
+      "Bash(docker build:*)"
     ]
   }
 }

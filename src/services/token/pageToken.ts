@@ -59,20 +59,36 @@ export async function validatePageToken(
 ): Promise<PageTokenData | null> {
   const pool = await getConnection();
 
-  const result = await pool.request()
+  // 먼저 uuid로만 조회해서 토큰 존재 여부 확인
+  const checkResult = await pool.request()
     .input('uuid', sql.NVarChar, uuid)
-    .input('token', sql.NVarChar, token)
     .query(`
-      SELECT uuid, token, hos_cd, hos_cso_cd, user_id, expires_at
+      SELECT uuid, token, hos_cd, hos_cso_cd, user_id, expires_at, GETDATE() as now
       FROM PageTokens
-      WHERE uuid = @uuid AND token = @token AND expires_at > GETDATE()
+      WHERE uuid = @uuid
     `);
 
-  if (result.recordset.length === 0) {
+  if (checkResult.recordset.length === 0) {
+    logger.warn(`[validatePageToken] uuid not found in DB: ${uuid}`);
     return null;
   }
 
-  return result.recordset[0] as PageTokenData;
+  const record = checkResult.recordset[0];
+  logger.info(`[validatePageToken] Found record - expires_at: ${record.expires_at}, now: ${record.now}`);
+
+  // 토큰 일치 확인
+  if (record.token !== token) {
+    logger.warn(`[validatePageToken] Token mismatch for uuid: ${uuid}`);
+    return null;
+  }
+
+  // 만료 확인
+  if (new Date(record.expires_at) < new Date(record.now)) {
+    logger.warn(`[validatePageToken] Token expired for uuid: ${uuid}`);
+    return null;
+  }
+
+  return record as PageTokenData;
 }
 
 /**
