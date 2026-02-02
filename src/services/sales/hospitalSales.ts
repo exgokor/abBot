@@ -7,7 +7,7 @@ import { getConnection } from '../database/connection';
 import sql from 'mssql';
 import { formatDrugName } from '../../utils/drugNameFormatter';
 import { formatSalesMoney } from '../../utils/numberFormatter';
-import { COLORS, LOGO_URL } from '../../utils/bubbleBuilder';
+import { COLORS, LOGO_URL, createFooter } from '../../utils/bubbleBuilder';
 import { getCurrentPeriod, PeriodInfo } from './periodService';
 import {
   encodePostback,
@@ -408,34 +408,86 @@ function createSummaryBubble(
   periodText: string,
   blockEditUrl?: string | null
 ): any {
-  // 푸터 콘텐츠 생성
-  const footerContents: any[] = [];
+  // 바디 콘텐츠 생성
+  const bodyContents: any[] = [
+    { type: 'image', url: LOGO_URL, aspectRatio: '5:3', size: 'sm', aspectMode: 'fit' },
+    {
+      type: 'box',
+      layout: 'vertical',
+      contents: [
+        { type: 'text', text: hospitalTitle, size: 'md', color: COLORS.text, weight: 'bold', align: 'center', wrap: true },
+        { type: 'text', text: `조회기간: ${periodText}`, size: 'xs', color: COLORS.lightGray, align: 'center', margin: 'sm' },
+        { type: 'separator', margin: 'md', color: COLORS.border },
+        {
+          type: 'box',
+          layout: 'horizontal',
+          contents: [
+            { type: 'text', text: '월평균 매출', size: 'sm', color: COLORS.subtext },
+            { type: 'text', text: formatSalesMoney(monthlyAvg), size: 'lg', weight: 'bold', color: COLORS.text, align: 'end' }
+          ],
+          margin: 'md'
+        },
+        { type: 'text', text: `(${trendText})`, size: 'xxs', color: COLORS.subtext, align: 'end', margin: 'sm' },
+        { type: 'separator', margin: 'md', color: COLORS.border },
+        {
+          type: 'box',
+          layout: 'horizontal',
+          contents: [
+            { type: 'text', text: '거래 품목', size: 'sm', color: COLORS.subtext },
+            { type: 'text', text: `${summary.drug_count}개`, size: 'sm', weight: 'bold', color: COLORS.text, align: 'end' }
+          ],
+          margin: 'md'
+        },
+        {
+          type: 'box',
+          layout: 'horizontal',
+          contents: [
+            { type: 'text', text: '거래 CSO', size: 'sm', color: COLORS.subtext },
+            { type: 'text', text: `${summary.cso_count}명`, size: 'sm', weight: 'bold', color: COLORS.text, align: 'end' }
+          ],
+          margin: 'sm'
+        }
+      ],
+      backgroundColor: COLORS.white,
+      cornerRadius: '12px',
+      paddingAll: '16px',
+      margin: 'md'
+    }
+  ];
 
-  // SUPER_ADMIN인 경우 블록 수정 버튼 추가
+  // SUPER_ADMIN인 경우 블록 수정 섹션 추가 (바디에 흰색 둥근 상자)
   if (blockEditUrl) {
-    footerContents.push({
-      type: 'button',
-      action: {
-        type: 'uri',
-        label: '블록 수정',
-        uri: blockEditUrl,
-      },
-      style: 'primary',
-      height: 'sm',
-      color: COLORS.navy,
+    bodyContents.push({
+      type: 'box',
+      layout: 'vertical',
+      contents: [
+        {
+          type: 'text',
+          text: '버튼을 클릭하여 현재 블록을 수정할 수 있습니다.',
+          size: 'xs',
+          color: COLORS.lightGray,
+          align: 'center',
+          wrap: true
+        },
+        {
+          type: 'button',
+          action: {
+            type: 'uri',
+            label: '블록 수정',
+            uri: blockEditUrl,
+          },
+          style: 'primary',
+          height: 'sm',
+          color: COLORS.navy,
+          margin: 'sm'
+        }
+      ],
+      backgroundColor: COLORS.white,
+      cornerRadius: '12px',
+      paddingAll: '12px',
+      margin: 'md'
     });
   }
-
-  // 기본 AJUBIO 텍스트
-  footerContents.push({
-    type: 'text',
-    text: 'AJUBIO',
-    size: 'xxs',
-    weight: 'bold',
-    color: COLORS.white,
-    align: 'center',
-    margin: blockEditUrl ? 'sm' : 'none',
-  });
 
   return {
     type: 'bubble',
@@ -451,61 +503,11 @@ function createSummaryBubble(
     body: {
       type: 'box',
       layout: 'vertical',
-      contents: [
-        { type: 'image', url: LOGO_URL, aspectRatio: '5:3', size: 'sm', aspectMode: 'fit' },
-        {
-          type: 'box',
-          layout: 'vertical',
-          contents: [
-            { type: 'text', text: hospitalTitle, size: 'md', color: COLORS.text, weight: 'bold', align: 'center', wrap: true },
-            { type: 'text', text: `조회기간: ${periodText}`, size: 'xs', color: COLORS.lightGray, align: 'center', margin: 'sm' },
-            { type: 'separator', margin: 'md', color: COLORS.border },
-            {
-              type: 'box',
-              layout: 'horizontal',
-              contents: [
-                { type: 'text', text: '월평균 매출', size: 'sm', color: COLORS.subtext },
-                { type: 'text', text: formatSalesMoney(monthlyAvg), size: 'lg', weight: 'bold', color: COLORS.text, align: 'end' }
-              ],
-              margin: 'md'
-            },
-            { type: 'text', text: `(${trendText})`, size: 'xxs', color: COLORS.subtext, align: 'end', margin: 'sm' },
-            { type: 'separator', margin: 'md', color: COLORS.border },
-            {
-              type: 'box',
-              layout: 'horizontal',
-              contents: [
-                { type: 'text', text: '거래 품목', size: 'sm', color: COLORS.subtext },
-                { type: 'text', text: `${summary.drug_count}개`, size: 'sm', weight: 'bold', color: COLORS.text, align: 'end' }
-              ],
-              margin: 'md'
-            },
-            {
-              type: 'box',
-              layout: 'horizontal',
-              contents: [
-                { type: 'text', text: '거래 CSO', size: 'sm', color: COLORS.subtext },
-                { type: 'text', text: `${summary.cso_count}명`, size: 'sm', weight: 'bold', color: COLORS.text, align: 'end' }
-              ],
-              margin: 'sm'
-            }
-          ],
-          backgroundColor: COLORS.white,
-          cornerRadius: '12px',
-          paddingAll: '16px',
-          margin: 'md'
-        }
-      ],
+      contents: bodyContents,
       backgroundColor: COLORS.background,
       paddingAll: '12px'
     },
-    footer: {
-      type: 'box',
-      layout: 'vertical',
-      contents: footerContents,
-      backgroundColor: COLORS.darkNavy,
-      paddingAll: blockEditUrl ? '8px' : '6px'
-    }
+    footer: createFooter()
   };
 }
 
