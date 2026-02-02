@@ -358,7 +358,7 @@ export async function createHospitalCarousel(
       options.userId,
       60 // 60분 유효
     );
-    const baseUrl = process.env.APP_URL || 'https://ajubio-bot-725057943983.asia-northeast3.run.app';
+    const baseUrl = process.env.APP_URL || 'https://ajubio-newbot2026-86048170240.asia-northeast3.run.app';
     blockEditUrl = `${baseUrl}/blocks?uuid=${uuid}&token=${token}`;
   }
 
