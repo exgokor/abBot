@@ -351,8 +351,9 @@ export async function createHospitalCarousel(
 
   // SUPER_ADMIN인 경우 블록 수정 URL 생성
   let blockEditUrl: string | null = null;
+  let tokenExpiresAt: Date | null = null;
   if (options?.isSuperAdmin && options?.userId) {
-    const { uuid, token } = await createPageToken(
+    const { uuid, token, expiresAt } = await createPageToken(
       hospital.hos_cd,
       hospital.hos_cso_cd,
       options.userId,
@@ -360,10 +361,11 @@ export async function createHospitalCarousel(
     );
     const baseUrl = process.env.APP_URL || 'https://ajubio-newbot2026-86048170240.asia-northeast3.run.app';
     blockEditUrl = `${baseUrl}/blocks?uuid=${uuid}&token=${token}`;
+    tokenExpiresAt = expiresAt;
   }
 
   // 1. 요약 버블
-  bubbles.push(createSummaryBubble(hospital, hospitalTitle, summary, monthlyAvg, trendText, periodText, blockEditUrl));
+  bubbles.push(createSummaryBubble(hospital, hospitalTitle, summary, monthlyAvg, trendText, periodText, blockEditUrl, tokenExpiresAt));
 
   // 2. 블록현황 버블들
   const blocks = await getHospitalBlocks(hospital.hos_cd, hospital.hos_cso_cd);
@@ -406,7 +408,8 @@ function createSummaryBubble(
   monthlyAvg: number,
   trendText: string,
   periodText: string,
-  blockEditUrl?: string | null
+  blockEditUrl?: string | null,
+  tokenExpiresAt?: Date | null
 ): any {
   // 바디 콘텐츠 생성
   const bodyContents: any[] = [
@@ -457,13 +460,17 @@ function createSummaryBubble(
 
   // SUPER_ADMIN인 경우 블록 수정 섹션 추가 (바디에 흰색 둥근 상자)
   if (blockEditUrl) {
+    // 토큰 만료 시간을 MM.DD HH:mm 형식으로 포맷팅
+    const expiresText = tokenExpiresAt
+      ? `변경 가능 시간 ~ ${String(tokenExpiresAt.getMonth() + 1).padStart(2, '0')}.${String(tokenExpiresAt.getDate()).padStart(2, '0')} ${String(tokenExpiresAt.getHours()).padStart(2, '0')}:${String(tokenExpiresAt.getMinutes()).padStart(2, '0')}`
+      : '블록 수정';
     bodyContents.push({
       type: 'box',
       layout: 'vertical',
       contents: [
         {
           type: 'text',
-          text: '버튼을 클릭하여 현재 블록을 수정할 수 있습니다.',
+          text: expiresText,
           size: 'xs',
           color: COLORS.lightGray,
           align: 'center',

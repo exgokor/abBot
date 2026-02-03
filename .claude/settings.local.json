@@ -24,7 +24,9 @@
       "Bash(npx tsc:*)",
       "Bash(npm uninstall:*)",
       "Bash(timeout 5 npm start:*)",
-      "Bash(docker build:*)"
+      "Bash(docker build:*)",
+      "Bash(dir:*)",
+      "Bash(xcopy:*)"
     ]
   }
 }

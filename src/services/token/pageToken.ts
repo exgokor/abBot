@@ -26,7 +26,7 @@ export async function createPageToken(
   hos_cso_cd: string,
   userId: string,
   expiresInMinutes: number = 30
-): Promise<{ uuid: string; token: string }> {
+): Promise<{ uuid: string; token: string; expiresAt: Date }> {
   const pool = await getConnection();
 
   const uuid = crypto.randomUUID();
@@ -47,7 +47,7 @@ export async function createPageToken(
 
   logger.info(`Page token created for hospital ${hos_cd}|${hos_cso_cd}, user ${userId}`);
 
-  return { uuid, token };
+  return { uuid, token, expiresAt };
 }
 
 /**
