@@ -113,6 +113,7 @@ function clearChanges() {
 const elements = {
   loading: document.getElementById('loading'),
   hospitalName: document.getElementById('hospitalName'),
+  tokenExpiry: document.getElementById('tokenExpiry'),
   blockList: document.getElementById('blockList'),
   emptyMessage: document.getElementById('emptyMessage'),
   btnAddCso: document.getElementById('btnAddCso'),
@@ -313,6 +314,14 @@ async function loadBlocks() {
 
     // 병원명 표시
     elements.hospitalName.textContent = state.hospitalName;
+
+    // 토큰 만료 시간 표시
+    if (response.expiresAt) {
+      const expiresAt = new Date(response.expiresAt);
+      const hours = String(expiresAt.getHours()).padStart(2, '0');
+      const minutes = String(expiresAt.getMinutes()).padStart(2, '0');
+      elements.tokenExpiry.textContent = `~${hours}:${minutes}까지 유효`;
+    }
 
     // 품목 목록 추출 (중복 제거)
     const drugMap = new Map();

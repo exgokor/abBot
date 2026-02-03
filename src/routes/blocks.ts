@@ -145,6 +145,7 @@ router.get('/api/blocks', async (req: Request, res: Response) => {
       hospitalName,
       hosCd: hos_cd,
       hosCsoCd: hos_cso_cd,
+      expiresAt: tokenData.expires_at,
       data: Array.from(blockMap.values()),
     });
   } catch (error) {
@@ -323,22 +324,93 @@ router.post('/api/blocks/batch', async (req: Request, res: Response) => {
         const hospital = hospitalResult.recordset[0];
         const hospitalName = hospital?.hos_abbr || hospital?.hos_name || `${hos_cd}|${hos_cso_cd}`;
 
-        // 변경내역 메시지 생성
-        let message = `[블록 수정 완료]\n병원: ${hospitalName}\n\n`;
+        // CSO 및 품목 정보 조회를 위한 코드 수집
+        const csoCodes = new Set<string>();
+        const drugCodes = new Set<string>();
 
-        if ((diseases || []).length > 0) {
-          message += `▶ 진료과 변경: ${diseases.length}건\n`;
-          for (const d of diseases.slice(0, 5)) {
-            const action = d.action === 'add' ? '추가' : d.action === 'end' ? '종료' : '수정';
-            message += `  - ${d.disease_type} (${action})\n`;
-          }
-          if (diseases.length > 5) {
-            message += `  ... 외 ${diseases.length - 5}건\n`;
+        for (const d of diseases || []) {
+          const [drug_cd, , cso_cd] = d.blockKey.split('|');
+          csoCodes.add(cso_cd);
+          drugCodes.add(drug_cd);
+        }
+        for (const del of deletions || []) {
+          csoCodes.add(del.cso_cd);
+          drugCodes.add(del.drug_cd);
+        }
+
+        // CSO 정보 조회
+        const csoMap: Record<string, string> = {};
+        if (csoCodes.size > 0) {
+          const csoResult = await pool.request().query(`
+            SELECT cso_cd, cso_dealer_nm FROM CSO_TBL WHERE cso_cd IN ('${Array.from(csoCodes).join("','")}')
+          `);
+          for (const row of csoResult.recordset) {
+            csoMap[row.cso_cd] = row.cso_dealer_nm;
           }
         }
 
+        // 품목 정보 조회
+        const drugMap: Record<string, string> = {};
+        if (drugCodes.size > 0) {
+          const drugResult = await pool.request().query(`
+            SELECT drug_cd, drug_name FROM DRUG_TBL WHERE drug_cd IN ('${Array.from(drugCodes).join("','")}') AND end_index = 1199
+          `);
+          for (const row of drugResult.recordset) {
+            drugMap[row.drug_cd] = row.drug_name;
+          }
+        }
+
+        // 변경내역 메시지 생성
+        let message = `[블록 수정 완료]\n병원: ${hospitalName}\n`;
+
+        // 신규 추가
+        const addItems = (diseases || []).filter((d: any) => d.action === 'add');
+        if (addItems.length > 0) {
+          message += `\n▶ 신규 추가\n`;
+          for (const d of addItems.slice(0, 5)) {
+            const [drug_cd, , cso_cd] = d.blockKey.split('|');
+            const drugName = drugMap[drug_cd] || drug_cd;
+            const csoName = csoMap[cso_cd] || cso_cd;
+            message += `  - ${drugName} / ${csoName} / ${d.disease_type}\n`;
+          }
+          if (addItems.length > 5) message += `  ... 외 ${addItems.length - 5}건\n`;
+        }
+
+        // 기존 수정
+        const editItems = (diseases || []).filter((d: any) => d.action === 'edit');
+        if (editItems.length > 0) {
+          message += `\n▶ 기존 수정\n`;
+          for (const d of editItems.slice(0, 5)) {
+            const [drug_cd, , cso_cd] = d.blockKey.split('|');
+            const drugName = drugMap[drug_cd] || drug_cd;
+            const csoName = csoMap[cso_cd] || cso_cd;
+            message += `  - ${drugName} / ${csoName} / ${d.disease_type}\n`;
+          }
+          if (editItems.length > 5) message += `  ... 외 ${editItems.length - 5}건\n`;
+        }
+
+        // 종료
+        const endItems = (diseases || []).filter((d: any) => d.action === 'end');
+        if (endItems.length > 0) {
+          message += `\n▶ 종료 처리\n`;
+          for (const d of endItems.slice(0, 5)) {
+            const [drug_cd, , cso_cd] = d.blockKey.split('|');
+            const drugName = drugMap[drug_cd] || drug_cd;
+            const csoName = csoMap[cso_cd] || cso_cd;
+            message += `  - ${drugName} / ${csoName} / ${d.disease_type} (~${d.end_year}.${String(d.end_month).padStart(2, '0')})\n`;
+          }
+          if (endItems.length > 5) message += `  ... 외 ${endItems.length - 5}건\n`;
+        }
+
+        // CSO 삭제
         if ((deletions || []).length > 0) {
-          message += `▶ CSO 삭제: ${deletions.length}건\n`;
+          message += `\n▶ CSO 삭제\n`;
+          for (const del of (deletions || []).slice(0, 5)) {
+            const drugName = drugMap[del.drug_cd] || del.drug_cd;
+            const csoName = csoMap[del.cso_cd] || del.cso_cd;
+            message += `  - ${drugName} / ${csoName}\n`;
+          }
+          if (deletions.length > 5) message += `  ... 외 ${deletions.length - 5}건\n`;
         }
 
         await sendTextMessage(config.naverWorks.notifyUserId, message);
