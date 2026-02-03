@@ -125,6 +125,7 @@ const elements = {
   deleteHosCsoCd: document.getElementById('deleteHosCsoCd'),
   deleteDrugCd: document.getElementById('deleteDrugCd'),
   deleteSeq: document.getElementById('deleteSeq'),
+  deleteCsoCd: document.getElementById('deleteCsoCd'),
   btnDeleteCancel: document.getElementById('btnDeleteCancel'),
   btnDeleteConfirm: document.getElementById('btnDeleteConfirm'),
 
@@ -338,30 +339,53 @@ function renderBlocks() {
 
   elements.emptyMessage.style.display = 'none';
 
-  // 품목별 그룹화
-  const grouped = {};
-  state.blocks.forEach(block => {
-    if (!grouped[block.drug_cd]) {
-      grouped[block.drug_cd] = {
-        drug_name: block.drug_name,
-        blocks: [],
-      };
-    }
-    grouped[block.drug_cd].blocks.push(block);
-  });
+  // 현재/종료 블록 분리
+  const currentBlocks = state.blocks.filter(b => b.is_current === 1);
+  const endedBlocks = state.blocks.filter(b => b.is_current !== 1);
+
+  // 품목별 그룹화 함수
+  function groupByDrug(blocks) {
+    const grouped = {};
+    blocks.forEach(block => {
+      if (!grouped[block.drug_cd]) {
+        grouped[block.drug_cd] = {
+          drug_name: block.drug_name,
+          blocks: [],
+        };
+      }
+      grouped[block.drug_cd].blocks.push(block);
+    });
+    return grouped;
+  }
 
   // HTML 생성
   let html = '';
 
-  for (const drugCd in grouped) {
-    const group = grouped[drugCd];
-
+  // 현재 블록
+  const currentGrouped = groupByDrug(currentBlocks);
+  for (const drugCd in currentGrouped) {
+    const group = currentGrouped[drugCd];
     html += `
       <div class="drug-group" data-drug-cd="${drugCd}">
         <div class="drug-group-header">${group.drug_name}</div>
         ${group.blocks.map(block => renderBlockCard(block)).join('')}
       </div>
     `;
+  }
+
+  // 종료된 블록 (있는 경우에만)
+  if (endedBlocks.length > 0) {
+    html += `<div class="ended-section-header">지난 내역</div>`;
+    const endedGrouped = groupByDrug(endedBlocks);
+    for (const drugCd in endedGrouped) {
+      const group = endedGrouped[drugCd];
+      html += `
+        <div class="drug-group ended" data-drug-cd="${drugCd}">
+          <div class="drug-group-header">${group.drug_name}</div>
+          ${group.blocks.map(block => renderBlockCard(block)).join('')}
+        </div>
+      `;
+    }
   }
 
   elements.blockList.innerHTML = html;
@@ -374,7 +398,7 @@ function renderBlocks() {
  * 개별 담당 카드 렌더링
  */
 function renderBlockCard(block) {
-  const blockKey = `${block.drug_cd}|${block.seq}`;
+  const blockKey = `${block.drug_cd}|${block.seq}|${block.cso_cd}`;
   const diseases = block.diseases || [];
 
   return `
@@ -383,6 +407,7 @@ function renderBlockCard(block) {
          data-hos-cso-cd="${block.hos_cso_cd}"
          data-drug-cd="${block.drug_cd}"
          data-seq="${block.seq}"
+         data-cso-cd="${block.cso_cd}"
          data-block-key="${blockKey}">
 
       <!-- CSO 정보 헤더 -->
@@ -670,6 +695,7 @@ function handleDeleteClick(e) {
   elements.deleteHosCsoCd.value = card.dataset.hosCsoCd;
   elements.deleteDrugCd.value = card.dataset.drugCd;
   elements.deleteSeq.value = card.dataset.seq;
+  elements.deleteCsoCd.value = card.dataset.csoCd;
 
   // 모달 표시
   elements.deleteModal.style.display = 'flex';
@@ -679,7 +705,7 @@ function handleDeleteClick(e) {
  * 삭제 확인 핸들러 (변경사항 추적)
  */
 function handleDeleteConfirm() {
-  const blockKey = `${elements.deleteDrugCd.value}|${elements.deleteSeq.value}`;
+  const blockKey = `${elements.deleteDrugCd.value}|${elements.deleteSeq.value}|${elements.deleteCsoCd.value}`;
 
   // 변경사항에 삭제 추가
   addChange('deletions', {
@@ -688,6 +714,7 @@ function handleDeleteConfirm() {
     hos_cso_cd: elements.deleteHosCsoCd.value,
     drug_cd: elements.deleteDrugCd.value,
     seq: elements.deleteSeq.value,
+    cso_cd: elements.deleteCsoCd.value,
   });
 
   // 카드를 시각적으로 삭제 표시

@@ -286,7 +286,7 @@ FROM DRUG_TBL WHERE drug_isvalid = 'Y' AND end_index = 1199
 `
   },
 
-  // 10. V_BLOCK_FOR_EDIT_byClaude: 블록 수정 페이지용 (병원별 블록 목록, 현재 유효한 블록만)
+  // 10. V_BLOCK_FOR_EDIT_byClaude: 블록 수정 페이지용 (병원별 블록 목록, 종료 내역 포함)
   {
     name: 'V_BLOCK_FOR_EDIT_byClaude',
     sql: `
@@ -304,11 +304,11 @@ SELECT
     b.start_year,
     b.start_month,
     b.end_year,
-    b.end_month
+    b.end_month,
+    CASE WHEN b.end_index >= ((YEAR(GETDATE()) - 2000) * 12 + MONTH(GETDATE()) - 1) THEN 1 ELSE 0 END AS is_current
 FROM BLOCK_TBL b
 LEFT JOIN DRUG_TBL d ON b.drug_cd = d.drug_cd AND d.end_index = 1199
 LEFT JOIN CSO_TBL c ON b.cso_cd = c.cso_cd
-WHERE b.end_index >= ((YEAR(GETDATE()) - 2000) * 12 + MONTH(GETDATE()) - 1)
 `
   }
 ];

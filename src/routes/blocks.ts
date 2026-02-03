@@ -95,26 +95,21 @@ router.get('/api/blocks', async (req: Request, res: Response) => {
     const hospital = hospitalResult.recordset[0];
     const hospitalName = hospital?.hos_abbr || hospital?.hos_name || '병원명';
 
-    // 블록 목록 조회 (진료과별 기간 포함)
+    // 블록 목록 조회 (V_BLOCK_FOR_EDIT_byClaude 뷰 사용)
     const blocksResult = await pool.request()
       .input('hos_cd', sql.NVarChar, hos_cd)
       .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
       .query(`
-        SELECT
-          b.hos_cd, b.hos_cso_cd, b.drug_cd, d.drug_name,
-          b.seq, b.cso_cd, c.cso_dealer_nm, c.cso_corp_nm,
-          b.disease_type, b.start_year, b.start_month, b.end_year, b.end_month
-        FROM BLOCK_TBL b
-        LEFT JOIN DRUG_TBL d ON b.drug_cd = d.drug_cd AND d.end_index = 1199
-        LEFT JOIN CSO_TBL c ON b.cso_cd = c.cso_cd
-        WHERE b.hos_cd = @hos_cd AND b.hos_cso_cd = @hos_cso_cd
-        ORDER BY d.drug_name, b.seq, b.disease_type
+        SELECT *
+        FROM V_BLOCK_FOR_EDIT_byClaude
+        WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
+        ORDER BY is_current DESC, drug_name, seq, cso_cd, disease_type
       `);
 
-    // 그룹화: drug_cd + seq 기준으로 묶고, diseases 배열로 정리
+    // 그룹화: drug_cd + seq + cso_cd 기준으로 묶고, diseases 배열로 정리
     const blockMap = new Map<string, any>();
     for (const row of blocksResult.recordset) {
-      const key = `${row.drug_cd}|${row.seq}`;
+      const key = `${row.drug_cd}|${row.seq}|${row.cso_cd}`;
       if (!blockMap.has(key)) {
         blockMap.set(key, {
           hos_cd: row.hos_cd,
@@ -125,6 +120,7 @@ router.get('/api/blocks', async (req: Request, res: Response) => {
           cso_cd: row.cso_cd,
           cso_dealer_nm: row.cso_dealer_nm,
           cso_corp_nm: row.cso_corp_nm,
+          is_current: row.is_current,
           diseases: [],
         });
       }
@@ -136,6 +132,10 @@ router.get('/api/blocks', async (req: Request, res: Response) => {
           end_year: row.end_year,
           end_month: row.end_month,
         });
+        // 하나라도 진행 중인 disease가 있으면 블록을 현재로 처리
+        if (row.is_current === 1) {
+          blockMap.get(key).is_current = 1;
+        }
       }
     }
 
@@ -299,9 +299,10 @@ router.post('/api/blocks/batch', async (req: Request, res: Response) => {
         .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
         .input('drug_cd', sql.NVarChar, deletion.drug_cd)
         .input('seq', sql.NVarChar, deletion.seq)
+        .input('cso_cd', sql.NVarChar, deletion.cso_cd)
         .query(`
           DELETE FROM BLOCK_TBL
-          WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd AND drug_cd = @drug_cd AND seq = @seq
+          WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd AND drug_cd = @drug_cd AND seq = @seq AND cso_cd = @cso_cd
         `);
     }
 
