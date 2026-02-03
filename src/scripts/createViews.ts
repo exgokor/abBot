@@ -4,60 +4,9 @@
  */
 
 import { getConnection, closeConnection } from '../services/database/connection';
-import sql from 'mssql';
 
 const VIEW_DEFINITIONS = [
-  // 1. V_SALES_DETAIL_byClaude: 매출 상세 (모든 마스터 조인)
-  {
-    name: 'V_SALES_DETAIL_byClaude',
-    sql: `
-CREATE VIEW V_SALES_DETAIL_byClaude AS
-SELECT
-    s.hos_cd,
-    s.hos_cso_cd,
-    s.drug_cd,
-    s.seq,
-    s.cso_cd_then,
-    s.drug_cnt,
-    s.drug_price,
-    s.rx_type,
-    s.drug_ws_fee,
-    s.pay_rate,
-    s.sales_year,
-    s.sales_month,
-    s.sales_index,
-    s.pay_year,
-    s.pay_month,
-    s.pay_index,
-    -- CSO 정보
-    c.cso_dealer_nm,
-    c.cso_corp_nm,
-    c.cso_email,
-    -- 병원 정보
-    h.hos_name,
-    h.hos_abbr,
-    h.hos_type,
-    h.hos_addr1,
-    h.hos_addr2,
-    h.hosIndex,
-    -- 의약품 정보
-    d.drug_name,
-    d.drug_class,
-    d.drug_category,
-    d.drug_totRate,
-    d.drug_dpRate,
-    -- 계산 필드
-    (s.drug_cnt * s.drug_price) AS sales_amount
-FROM SALES_TBL s
-LEFT JOIN CSO_TBL c ON s.cso_cd_then = c.cso_cd
-LEFT JOIN HOSPITAL_TBL h ON s.hos_cd = h.hos_cd AND s.hos_cso_cd = h.hos_cso_cd
-LEFT JOIN DRUG_TBL d ON s.drug_cd = d.drug_cd
-    AND s.sales_index >= d.start_index
-    AND s.sales_index <= d.end_index
-`
-  },
-
-  // 2. V_CSO_MONTHLY_SALES_byClaude: CSO별 월별 매출 집계
+  // 1. V_CSO_MONTHLY_SALES_byClaude: CSO별 월별 매출 집계
   {
     name: 'V_CSO_MONTHLY_SALES_byClaude',
     sql: `
@@ -161,33 +110,7 @@ GROUP BY
 `
   },
 
-  // 5. V_REGION_MONTHLY_SALES_byClaude: 지역별 월별 매출 집계
-  {
-    name: 'V_REGION_MONTHLY_SALES_byClaude',
-    sql: `
-CREATE VIEW V_REGION_MONTHLY_SALES_byClaude AS
-SELECT
-    h.hosIndex,
-    h.hos_addr1,
-    s.sales_year,
-    s.sales_month,
-    s.sales_index,
-    COUNT(DISTINCT s.hos_cd + s.hos_cso_cd) AS hospital_count,
-    COUNT(DISTINCT s.cso_cd_then) AS cso_count,
-    COUNT(DISTINCT CASE WHEN s.drug_cnt > 0 THEN s.drug_cd END) AS drug_count,
-    SUM(s.drug_cnt * s.drug_price) AS total_sales
-FROM SALES_TBL s
-LEFT JOIN HOSPITAL_TBL h ON s.hos_cd = h.hos_cd AND s.hos_cso_cd = h.hos_cso_cd
-GROUP BY
-    h.hosIndex,
-    h.hos_addr1,
-    s.sales_year,
-    s.sales_month,
-    s.sales_index
-`
-  },
-
-  // 6. V_CSO_HOSPITAL_MONTHLY_byClaude: CSO-병원 조합별 월별 매출
+  // 5. V_CSO_HOSPITAL_MONTHLY_byClaude: CSO-병원 조합별 월별 매출
   {
     name: 'V_CSO_HOSPITAL_MONTHLY_byClaude',
     sql: `
@@ -340,43 +263,11 @@ INNER JOIN (
     AND b.end_index = latest.max_end_index
 LEFT JOIN CSO_TBL c ON b.cso_cd = c.cso_cd
 LEFT JOIN HOSPITAL_TBL h ON b.hos_cd = h.hos_cd AND b.hos_cso_cd = h.hos_cso_cd
-LEFT JOIN DRUG_TBL d ON b.drug_cd = d.drug_cd
+LEFT JOIN DRUG_TBL d ON b.drug_cd = d.drug_cd AND d.end_index = 1199
 `
   },
 
-  // 10. V_BLOCK_HISTORY_byClaude: 블록 변경 이력
-  {
-    name: 'V_BLOCK_HISTORY_byClaude',
-    sql: `
-CREATE VIEW V_BLOCK_HISTORY_byClaude AS
-SELECT
-    b.hos_cd,
-    b.hos_cso_cd,
-    b.drug_cd,
-    b.seq,
-    b.cso_cd,
-    c.cso_dealer_nm,
-    h.hos_name,
-    h.hos_abbr,
-    d.drug_name,
-    b.disease_type,
-    b.isFirst,
-    b.block_isvalid,
-    b.start_year,
-    b.start_month,
-    b.start_index,
-    b.end_year,
-    b.end_month,
-    b.end_index,
-    b.update_at
-FROM BLOCK_TBL b
-LEFT JOIN CSO_TBL c ON b.cso_cd = c.cso_cd
-LEFT JOIN HOSPITAL_TBL h ON b.hos_cd = h.hos_cd AND b.hos_cso_cd = h.hos_cso_cd
-LEFT JOIN DRUG_TBL d ON b.drug_cd = d.drug_cd
-`
-  },
-
-  // 11. V_SEARCH_INDEX_byClaude: 통합 검색용 인덱스
+  // 9. V_SEARCH_INDEX_byClaude: 통합 검색용 인덱스
   {
     name: 'V_SEARCH_INDEX_byClaude',
     sql: `
@@ -391,26 +282,33 @@ FROM HOSPITAL_TBL
 UNION ALL
 -- 품목 검색
 SELECT 'DRUG' AS entity_type, drug_cd AS entity_cd, drug_name AS search_name, NULL AS search_abbr, NULL AS region
-FROM DRUG_TBL WHERE drug_isvalid = 'Y'
+FROM DRUG_TBL WHERE drug_isvalid = 'Y' AND end_index = 1199
 `
   },
 
-  // 12. V_REGION_SUMMARY_byClaude: 지역별 요약용 (병원/품목 COUNT DISTINCT용)
+  // 10. V_BLOCK_FOR_EDIT_byClaude: 블록 수정 페이지용 (병원별 블록 목록, 현재 유효한 블록만)
   {
-    name: 'V_REGION_SUMMARY_byClaude',
+    name: 'V_BLOCK_FOR_EDIT_byClaude',
     sql: `
-CREATE VIEW V_REGION_SUMMARY_byClaude AS
+CREATE VIEW V_BLOCK_FOR_EDIT_byClaude AS
 SELECT
-    h.hosIndex,
-    s.sales_index,
-    s.hos_cd,
-    s.hos_cso_cd,
-    s.drug_cd,
-    SUM(s.drug_cnt * s.drug_price) AS sales_amount
-FROM SALES_TBL s
-JOIN HOSPITAL_TBL h ON s.hos_cd = h.hos_cd AND s.hos_cso_cd = h.hos_cso_cd
-WHERE s.drug_cnt > 0
-GROUP BY h.hosIndex, s.sales_index, s.hos_cd, s.hos_cso_cd, s.drug_cd
+    b.hos_cd,
+    b.hos_cso_cd,
+    b.drug_cd,
+    d.drug_name,
+    b.seq,
+    b.cso_cd,
+    c.cso_dealer_nm,
+    c.cso_corp_nm,
+    b.disease_type,
+    b.start_year,
+    b.start_month,
+    b.end_year,
+    b.end_month
+FROM BLOCK_TBL b
+LEFT JOIN DRUG_TBL d ON b.drug_cd = d.drug_cd AND d.end_index = 1199
+LEFT JOIN CSO_TBL c ON b.cso_cd = c.cso_cd
+WHERE b.end_index >= ((YEAR(GETDATE()) - 2000) * 12 + MONTH(GETDATE()) - 1)
 `
   }
 ];
