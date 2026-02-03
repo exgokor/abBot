@@ -6,8 +6,10 @@
 
 import { Router, Request, Response } from 'express';
 import path from 'path';
-import { validatePageToken } from '../services/token/pageToken';
+import { validatePageToken, createPageToken } from '../services/token/pageToken';
 import { getConnection } from '../services/database/connection';
+import { sendTextMessage } from '../services/naverworks/message';
+import { config } from '../config';
 import sql from 'mssql';
 import { logger } from '../utils/logger';
 
@@ -307,6 +309,46 @@ router.post('/api/blocks/batch', async (req: Request, res: Response) => {
     }
 
     logger.info(`Batch update: ${(diseases || []).length} changes, ${(deletions || []).length} deletions`);
+
+    // 변경내역이 있으면 관리자에게 메시지 전송
+    const totalChanges = (diseases || []).length + (deletions || []).length;
+    if (totalChanges > 0 && config.naverWorks.notifyUserId) {
+      try {
+        // 병원명 조회
+        const hospitalResult = await pool.request()
+          .input('hos_cd', sql.NVarChar, hos_cd)
+          .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
+          .query(`SELECT hos_name, hos_abbr FROM HOSPITAL_TBL WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd`);
+
+        const hospital = hospitalResult.recordset[0];
+        const hospitalName = hospital?.hos_abbr || hospital?.hos_name || `${hos_cd}|${hos_cso_cd}`;
+
+        // 변경내역 메시지 생성
+        let message = `[블록 수정 완료]\n병원: ${hospitalName}\n\n`;
+
+        if ((diseases || []).length > 0) {
+          message += `▶ 진료과 변경: ${diseases.length}건\n`;
+          for (const d of diseases.slice(0, 5)) {
+            const action = d.action === 'add' ? '추가' : d.action === 'end' ? '종료' : '수정';
+            message += `  - ${d.disease_type} (${action})\n`;
+          }
+          if (diseases.length > 5) {
+            message += `  ... 외 ${diseases.length - 5}건\n`;
+          }
+        }
+
+        if ((deletions || []).length > 0) {
+          message += `▶ CSO 삭제: ${deletions.length}건\n`;
+        }
+
+        await sendTextMessage(config.naverWorks.notifyUserId, message);
+        logger.info(`Block change notification sent to ${config.naverWorks.notifyUserId}`);
+      } catch (notifyError) {
+        logger.error('변경내역 알림 전송 실패:', notifyError);
+        // 알림 실패해도 저장은 성공으로 처리
+      }
+    }
+
     res.json({ success: true });
   } catch (error) {
     logger.error('일괄 저장 실패:', error);
@@ -345,6 +387,97 @@ router.get('/api/cso', async (req: Request, res: Response) => {
     res.json({ data: result.recordset });
   } catch (error) {
     logger.error('CSO 검색 실패:', error);
+    res.status(500).json({ message: '서버 오류가 발생했습니다.' });
+  }
+});
+
+/**
+ * 병원 검색 API
+ * GET /api/hospitals?keyword=xxx
+ */
+router.get('/api/hospitals', async (req: Request, res: Response) => {
+  try {
+    const { uuid, token, keyword } = req.query;
+
+    // 토큰 검증
+    const tokenData = await validatePageToken(uuid as string, token as string);
+    if (!tokenData) {
+      return res.status(401).json({ message: '유효하지 않거나 만료된 토큰입니다.' });
+    }
+
+    if (!keyword || (keyword as string).length < 1) {
+      return res.json({ data: [] });
+    }
+
+    const pool = await getConnection();
+    const result = await pool.request()
+      .input('keyword', sql.NVarChar, `%${keyword}%`)
+      .query(`
+        SELECT TOP 10 hos_cd, hos_cso_cd, hos_name, hos_abbr
+        FROM HOSPITAL_TBL
+        WHERE hos_name LIKE @keyword OR hos_abbr LIKE @keyword
+        ORDER BY hos_name
+      `);
+
+    res.json({ data: result.recordset });
+  } catch (error) {
+    logger.error('병원 검색 실패:', error);
+    res.status(500).json({ message: '서버 오류가 발생했습니다.' });
+  }
+});
+
+/**
+ * 병원 변경 (토큰 재발급) API
+ * POST /api/blocks/switch-hospital
+ */
+router.post('/api/blocks/switch-hospital', async (req: Request, res: Response) => {
+  try {
+    const { uuid, token } = req.query;
+
+    // 현재 토큰 검증
+    const tokenData = await validatePageToken(uuid as string, token as string);
+    if (!tokenData) {
+      return res.status(401).json({ message: '유효하지 않거나 만료된 토큰입니다.' });
+    }
+
+    const { hos_cd, hos_cso_cd } = req.body;
+    if (!hos_cd || !hos_cso_cd) {
+      return res.status(400).json({ message: '병원 정보가 필요합니다.' });
+    }
+
+    const pool = await getConnection();
+
+    // 병원 정보 조회
+    const hospitalResult = await pool.request()
+      .input('hos_cd', sql.NVarChar, hos_cd)
+      .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
+      .query(`
+        SELECT hos_name, hos_abbr
+        FROM HOSPITAL_TBL
+        WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
+      `);
+
+    if (hospitalResult.recordset.length === 0) {
+      return res.status(404).json({ message: '병원을 찾을 수 없습니다.' });
+    }
+
+    const hospital = hospitalResult.recordset[0];
+    const hospitalName = hospital.hos_abbr || hospital.hos_name || '병원명';
+
+    // 새 토큰 생성 (기존 user_id 사용, 60분 유효)
+    const newToken = await createPageToken(hos_cd, hos_cso_cd, tokenData.user_id, 60);
+
+    logger.info(`Hospital switched: ${tokenData.user_id} -> ${hos_cd}|${hos_cso_cd}`);
+
+    res.json({
+      uuid: newToken.uuid,
+      token: newToken.token,
+      hospitalName,
+      hosCd: hos_cd,
+      hosCsoCd: hos_cso_cd,
+    });
+  } catch (error) {
+    logger.error('병원 변경 실패:', error);
     res.status(500).json({ message: '서버 오류가 발생했습니다.' });
   }
 });

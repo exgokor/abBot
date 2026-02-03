@@ -117,6 +117,13 @@ const elements = {
   emptyMessage: document.getElementById('emptyMessage'),
   btnAddCso: document.getElementById('btnAddCso'),
 
+  // 병원 검색 모달
+  btnSearchHospital: document.getElementById('btnSearchHospital'),
+  hospitalSearchModal: document.getElementById('hospitalSearchModal'),
+  hospitalSearchInput: document.getElementById('hospitalSearchInput'),
+  hospitalSuggestions: document.getElementById('hospitalSuggestions'),
+  btnHospitalSearchCancel: document.getElementById('btnHospitalSearchCancel'),
+
   // CSO 삭제 모달
   deleteModal: document.getElementById('deleteModal'),
   deleteHospitalName: document.getElementById('deleteHospitalName'),
@@ -951,6 +958,18 @@ async function init() {
   });
   elements.btnDiseaseConfirm.addEventListener('click', handleDiseaseConfirm);
 
+  // 병원 검색 이벤트
+  elements.btnSearchHospital.addEventListener('click', () => {
+    elements.hospitalSearchModal.style.display = 'flex';
+    elements.hospitalSearchInput.value = '';
+    elements.hospitalSuggestions.style.display = 'none';
+    elements.hospitalSearchInput.focus();
+  });
+  elements.btnHospitalSearchCancel.addEventListener('click', () => {
+    elements.hospitalSearchModal.style.display = 'none';
+  });
+  elements.hospitalSearchInput.addEventListener('input', handleHospitalSearch);
+
   // 변경사항 저장 버튼
   elements.btnSaveChanges.addEventListener('click', handleSaveChanges);
 
@@ -968,6 +987,9 @@ async function init() {
     if (!elements.addCsoSearch.contains(e.target) && !elements.csoSuggestions.contains(e.target)) {
       elements.csoSuggestions.style.display = 'none';
     }
+    if (!elements.hospitalSearchInput.contains(e.target) && !elements.hospitalSuggestions.contains(e.target)) {
+      elements.hospitalSuggestions.style.display = 'none';
+    }
   });
 
   // 데이터 로드
@@ -976,6 +998,102 @@ async function init() {
   } catch (error) {
     console.error('초기화 실패:', error);
     alert('데이터를 불러오는데 실패했습니다.');
+  } finally {
+    setLoading(false);
+  }
+}
+
+// ========================================
+// 병원 검색 핸들러
+// ========================================
+let hospitalSearchTimeout = null;
+
+async function handleHospitalSearch(e) {
+  const keyword = e.target.value.trim();
+
+  if (hospitalSearchTimeout) {
+    clearTimeout(hospitalSearchTimeout);
+  }
+
+  if (keyword.length < 1) {
+    elements.hospitalSuggestions.style.display = 'none';
+    return;
+  }
+
+  // 디바운스 300ms
+  hospitalSearchTimeout = setTimeout(async () => {
+    try {
+      const response = await apiRequest(`/api/hospitals?keyword=${encodeURIComponent(keyword)}`);
+      renderHospitalSuggestions(response.data || []);
+    } catch (error) {
+      console.error('병원 검색 실패:', error);
+    }
+  }, 300);
+}
+
+function renderHospitalSuggestions(hospitals) {
+  if (hospitals.length === 0) {
+    elements.hospitalSuggestions.innerHTML = '<div class="no-results">검색 결과가 없습니다</div>';
+    elements.hospitalSuggestions.style.display = 'block';
+    return;
+  }
+
+  elements.hospitalSuggestions.innerHTML = hospitals.map(h => `
+    <div class="suggestion-item" data-hos-cd="${h.hos_cd}" data-hos-cso-cd="${h.hos_cso_cd}" data-name="${h.hos_abbr || h.hos_name}">
+      <div class="hospital-name">${h.hos_name}</div>
+      ${h.hos_abbr ? `<div class="hospital-abbr">${h.hos_abbr}</div>` : ''}
+    </div>
+  `).join('');
+
+  // 클릭 이벤트 바인딩
+  elements.hospitalSuggestions.querySelectorAll('.suggestion-item').forEach(item => {
+    item.addEventListener('click', () => {
+      selectHospital(item.dataset.hosCd, item.dataset.hosCsoCd, item.dataset.name);
+    });
+  });
+
+  elements.hospitalSuggestions.style.display = 'block';
+}
+
+async function selectHospital(hosCd, hosCsoCd, hospitalName) {
+  // 미저장 변경사항 확인
+  if (changes.diseases.length > 0 || changes.deletions.length > 0) {
+    if (!confirm('저장되지 않은 변경사항이 있습니다. 계속하시겠습니까?')) {
+      return;
+    }
+  }
+
+  elements.hospitalSearchModal.style.display = 'none';
+  setLoading(true);
+
+  try {
+    const response = await apiRequest('/api/blocks/switch-hospital', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hos_cd: hosCd, hos_cso_cd: hosCsoCd }),
+    });
+
+    // URL 업데이트
+    const newUrl = `${window.location.pathname}?uuid=${response.uuid}&token=${response.token}`;
+    window.history.replaceState({}, '', newUrl);
+
+    // state 업데이트
+    state.uuid = response.uuid;
+    state.token = response.token;
+    state.hospitalName = response.hospitalName;
+    state.hosCd = response.hosCd;
+    state.hosCsoCd = response.hosCsoCd;
+
+    // 변경사항 초기화
+    clearChanges();
+
+    // 새 병원 블록 로드
+    await loadBlocks();
+
+    showToast(`${response.hospitalName}(으)로 변경되었습니다.`, 'success');
+  } catch (error) {
+    console.error('병원 변경 실패:', error);
+    showToast('병원 변경에 실패했습니다.', 'error');
   } finally {
     setLoading(false);
   }

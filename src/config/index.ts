@@ -16,6 +16,7 @@ export const config = {
     adminPw: process.env.NAVER_WORKS_ADMIN_PW || '',
     authUrl: 'https://auth.worksmobile.com/oauth2/v2.0/authorize?response_type=code&scope=bot',
     redirectUri: process.env.NAVER_WORKS_REDIRECT_URI || '',
+    notifyUserId: process.env.NAVER_WORKS_NOTIFY_USER_ID || '',
   },
   database: {
     server: process.env.DB_SERVER || '',

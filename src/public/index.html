@@ -20,7 +20,10 @@
            alt="AJUBIO"
            class="header-logo">
       <div class="header-text">
-        <h1 id="hospitalName">병원명 로딩 중...</h1>
+        <div class="hospital-name-row">
+          <h1 id="hospitalName">병원명 로딩 중...</h1>
+          <button id="btnSearchHospital" class="btn-search-hospital">변경</button>
+        </div>
         <p class="header-subtitle">담당 관리</p>
       </div>
     </div>
@@ -51,6 +54,28 @@
       + CSO 담당 추가
     </button>
   </footer>
+
+  <!-- 병원 검색 모달 -->
+  <div id="hospitalSearchModal" class="modal" style="display: none;">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>병원 변경</h2>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="hospitalSearchInput">병원명 검색</label>
+          <div class="autocomplete-wrapper">
+            <input type="text" id="hospitalSearchInput" class="form-control" placeholder="병원명을 입력하세요...">
+            <div id="hospitalSuggestions" class="suggestions-list" style="display: none;"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btnHospitalSearchCancel" class="btn btn-secondary">취소</button>
+      </div>
+    </div>
+  </div>
 
   <!-- CSO 삭제 확인 모달 -->
   <div id="deleteModal" class="modal" style="display: none;">
