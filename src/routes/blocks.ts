@@ -464,6 +464,42 @@ router.get('/api/cso', async (req: Request, res: Response) => {
 });
 
 /**
+ * 품목 검색 API
+ * GET /api/drugs?keyword=xxx
+ */
+router.get('/api/drugs', async (req: Request, res: Response) => {
+  try {
+    const { uuid, token, keyword } = req.query;
+
+    // 토큰 검증
+    const tokenData = await validatePageToken(uuid as string, token as string);
+    if (!tokenData) {
+      return res.status(401).json({ message: '유효하지 않거나 만료된 토큰입니다.' });
+    }
+
+    if (!keyword || (keyword as string).length < 1) {
+      return res.json({ data: [] });
+    }
+
+    const pool = await getConnection();
+    const result = await pool.request()
+      .input('keyword', sql.NVarChar, `%${keyword}%`)
+      .query(`
+        SELECT TOP 10 drug_cd, drug_name
+        FROM DRUG_TBL
+        WHERE (drug_name LIKE @keyword OR drug_cd LIKE @keyword)
+          AND end_index = 1199
+        ORDER BY drug_name
+      `);
+
+    res.json({ data: result.recordset });
+  } catch (error) {
+    logger.error('품목 검색 실패:', error);
+    res.status(500).json({ message: '서버 오류가 발생했습니다.' });
+  }
+});
+
+/**
  * 병원 검색 API
  * GET /api/hospitals?keyword=xxx
  */

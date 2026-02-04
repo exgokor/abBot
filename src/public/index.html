@@ -190,13 +190,30 @@
           <h2>CSO 담당 추가</h2>
         </div>
         <div class="modal-body">
-          <!-- 품목 선택 -->
+          <!-- 품목 자동완성 검색 -->
           <div class="form-group">
-            <label for="addDrugSelect">품목</label>
-            <select id="addDrugSelect" class="form-control">
-              <option value="">품목 선택</option>
-              <!-- JS에서 동적 생성 -->
-            </select>
+            <label for="addDrugSearch">품목</label>
+            <div class="autocomplete-wrapper">
+              <input
+                type="text"
+                id="addDrugSearch"
+                class="form-control"
+                placeholder="품목명 검색..."
+              />
+              <div
+                id="drugSuggestions"
+                class="suggestions-list"
+                style="display: none"
+              >
+                <!-- JS에서 동적 생성 -->
+              </div>
+            </div>
+            <input type="hidden" id="addDrugCd" />
+            <p
+              id="selectedDrugInfo"
+              class="selected-info"
+              style="display: none"
+            ></p>
           </div>
 
           <!-- CSO 자동완성 검색 -->

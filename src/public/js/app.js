@@ -19,7 +19,9 @@ const state = {
   hosCd: '',            // 병원코드1
   hosCsoCd: '',         // 병원코드2
   blocks: [],           // 담당 목록
-  drugs: [],            // 품목 목록 (CSO 추가용)
+  drugs: [],            // 품목 목록 (CSO 추가용) - 더 이상 사용 안함
+  drugList: [],         // 품목 자동완성 목록
+  selectedDrug: null,   // 선택된 품목
   csoList: [],          // CSO 자동완성 목록
   selectedCso: null,    // 선택된 CSO
 };
@@ -154,7 +156,10 @@ const elements = {
 
   // CSO 추가 모달
   addModal: document.getElementById('addModal'),
-  addDrugSelect: document.getElementById('addDrugSelect'),
+  addDrugSearch: document.getElementById('addDrugSearch'),
+  drugSuggestions: document.getElementById('drugSuggestions'),
+  addDrugCd: document.getElementById('addDrugCd'),
+  selectedDrugInfo: document.getElementById('selectedDrugInfo'),
   addCsoSearch: document.getElementById('addCsoSearch'),
   csoSuggestions: document.getElementById('csoSuggestions'),
   addCsoCd: document.getElementById('addCsoCd'),
@@ -793,19 +798,20 @@ async function handleSaveChanges() {
  * CSO 추가 버튼 클릭 핸들러
  */
 function handleAddClick() {
-  // 폼 초기화
-  elements.addDrugSelect.innerHTML = '<option value="">품목 선택</option>';
-  state.drugs.forEach(drug => {
-    const option = document.createElement('option');
-    option.value = drug.drug_cd;
-    option.textContent = drug.drug_name;
-    elements.addDrugSelect.appendChild(option);
-  });
+  // 폼 초기화 - 품목
+  elements.addDrugSearch.value = '';
+  elements.addDrugCd.value = '';
+  elements.selectedDrugInfo.style.display = 'none';
+  elements.drugSuggestions.style.display = 'none';
+  state.selectedDrug = null;
 
+  // CSO
   elements.addCsoSearch.value = '';
   elements.addCsoCd.value = '';
   elements.selectedCsoInfo.style.display = 'none';
   elements.csoSuggestions.style.display = 'none';
+  state.selectedCso = null;
+
   elements.addDisease.value = '';
 
   generateYearOptions(elements.addStartYear, new Date().getFullYear());
@@ -814,10 +820,65 @@ function handleAddClick() {
   // 최초등록 체크박스 초기화
   elements.addIsFirst.checked = false;
 
-  state.selectedCso = null;
-
   // 모달 표시
   elements.addModal.style.display = 'flex';
+}
+
+/**
+ * 품목 검색 핸들러 (자동완성)
+ */
+let drugSearchTimeout = null;
+
+async function handleDrugSearch(e) {
+  const keyword = e.target.value.trim();
+
+  clearTimeout(drugSearchTimeout);
+
+  if (keyword.length < 1) {
+    elements.drugSuggestions.style.display = 'none';
+    return;
+  }
+
+  drugSearchTimeout = setTimeout(async () => {
+    try {
+      const drugResponse = await apiRequest(`/api/drugs?keyword=${encodeURIComponent(keyword)}`);
+      state.drugList = drugResponse.data || [];
+
+      if (state.drugList.length === 0) {
+        elements.drugSuggestions.innerHTML = '<div class="suggestion-item"><span class="suggestion-name">검색 결과 없음</span></div>';
+      } else {
+        elements.drugSuggestions.innerHTML = state.drugList.map(drug => `
+          <div class="suggestion-item" data-drug-cd="${drug.drug_cd}" data-drug-name="${drug.drug_name}">
+            <div class="suggestion-name">${drug.drug_name}</div>
+          </div>
+        `).join('');
+
+        // 클릭 이벤트 바인딩
+        elements.drugSuggestions.querySelectorAll('.suggestion-item[data-drug-cd]').forEach(item => {
+          item.addEventListener('click', () => {
+            selectDrug(item.dataset.drugCd, item.dataset.drugName);
+          });
+        });
+      }
+
+      elements.drugSuggestions.style.display = 'block';
+    } catch (error) {
+      console.error('품목 검색 실패:', error);
+    }
+  }, 300);
+}
+
+/**
+ * 품목 선택 핸들러
+ */
+function selectDrug(drugCd, drugName) {
+  state.selectedDrug = { drug_cd: drugCd, drug_name: drugName };
+
+  elements.addDrugCd.value = drugCd;
+  elements.addDrugSearch.value = drugName;
+  elements.selectedDrugInfo.textContent = drugName;
+  elements.selectedDrugInfo.style.display = 'block';
+  elements.drugSuggestions.style.display = 'none';
 }
 
 /**
@@ -882,7 +943,7 @@ function selectCso(csoCd, csoName, csoCorp) {
  * CSO 추가 확인 핸들러
  */
 async function handleAddConfirm() {
-  const drugCd = elements.addDrugSelect.value;
+  const drugCd = elements.addDrugCd.value;
   const csoCd = elements.addCsoCd.value;
   const disease = elements.addDisease.value.trim();
   const startYear = elements.addStartYear.value;
@@ -957,6 +1018,7 @@ async function init() {
     elements.addModal.style.display = 'none';
   });
   elements.btnAddConfirm.addEventListener('click', handleAddConfirm);
+  elements.addDrugSearch.addEventListener('input', handleDrugSearch);
   elements.addCsoSearch.addEventListener('input', handleCsoSearch);
 
   // 진료과 모달 이벤트
@@ -991,8 +1053,11 @@ async function init() {
     });
   });
 
-  // CSO 검색창 외부 클릭 시 자동완성 닫기
+  // 검색창 외부 클릭 시 자동완성 닫기
   document.addEventListener('click', (e) => {
+    if (!elements.addDrugSearch.contains(e.target) && !elements.drugSuggestions.contains(e.target)) {
+      elements.drugSuggestions.style.display = 'none';
+    }
     if (!elements.addCsoSearch.contains(e.target) && !elements.csoSuggestions.contains(e.target)) {
       elements.csoSuggestions.style.display = 'none';
     }
