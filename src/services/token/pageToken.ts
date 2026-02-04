@@ -31,7 +31,9 @@ export async function createPageToken(
 
   const uuid = crypto.randomUUID();
   const token = crypto.randomBytes(32).toString('hex');
-  const expiresAt = new Date(Date.now() + expiresInMinutes * 60 * 1000);
+  // 한국 시간(GMT+9) 기준으로 만료 시간 계산
+  const nowKST = Date.now() + (9 * 60 * 60 * 1000); // UTC + 9시간
+  const expiresAt = new Date(nowKST + expiresInMinutes * 60 * 1000);
 
   await pool.request()
     .input('uuid', sql.NVarChar, uuid)
@@ -63,7 +65,7 @@ export async function validatePageToken(
   const checkResult = await pool.request()
     .input('uuid', sql.NVarChar, uuid)
     .query(`
-      SELECT uuid, token, hos_cd, hos_cso_cd, user_id, expires_at, GETUTCDATE() as now
+      SELECT uuid, token, hos_cd, hos_cso_cd, user_id, expires_at, DATEADD(HOUR, 9, GETUTCDATE()) as now
       FROM PageTokens
       WHERE uuid = @uuid
     `);
@@ -99,7 +101,7 @@ export async function cleanupExpiredTokens(): Promise<number> {
 
   const result = await pool.request()
     .query(`
-      DELETE FROM PageTokens WHERE expires_at < GETDATE()
+      DELETE FROM PageTokens WHERE expires_at < DATEADD(HOUR, 9, GETUTCDATE())
     `);
 
   return result.rowsAffected[0] || 0;

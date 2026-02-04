@@ -1,230 +1,275 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>담당 관리</title>
-  <link rel="stylesheet" href="css/style.css">
-</head>
-<body>
-  <!-- 로딩 스피너 -->
-  <div id="loading" class="loading-overlay">
-    <div class="spinner"></div>
-    <p>로딩 중...</p>
-  </div>
-
-  <!-- 헤더 (병원명 고정) -->
-  <header class="header">
-    <div class="header-content">
-      <img src="../img/AB_Bot.png"
-           alt="AJUBIO"
-           class="header-logo">
-      <div class="header-text">
-        <div class="hospital-name-row">
-          <h1 id="hospitalName">병원명 로딩 중...</h1>
-          <button id="btnSearchHospital" class="btn-search-hospital">변경</button>
-        </div>
-        <p class="header-subtitle">담당 관리</p>
-        <p id="tokenExpiry" class="token-expiry"></p>
-      </div>
-    </div>
-  </header>
-
-  <!-- 메인 콘텐츠 -->
-  <main class="main-content">
-    <!-- 담당 목록 (품목별 그룹) -->
-    <div id="blockList" class="block-list">
-      <!-- JS에서 동적 생성 -->
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>담당 관리</title>
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <!-- 로딩 스피너 -->
+    <div id="loading" class="loading-overlay">
+      <div class="spinner"></div>
+      <p>로딩 중...</p>
     </div>
 
-    <!-- 데이터 없음 메시지 -->
-    <div id="emptyMessage" class="empty-message" style="display: none;">
-      <p>등록된 담당 정보가 없습니다.</p>
-    </div>
-
-    <!-- 변경사항 있을 때 저장 버튼 -->
-    <div id="changesBar" class="changes-bar" style="display: none;">
-      <span id="changesCount">0개의 변경사항</span>
-      <button id="btnSaveChanges" class="btn btn-primary">저장</button>
-    </div>
-  </main>
-
-  <!-- 하단 고정 버튼 -->
-  <footer class="footer">
-    <button id="btnAddCso" class="btn btn-primary btn-full">
-      + CSO 담당 추가
-    </button>
-  </footer>
-
-  <!-- 병원 검색 모달 -->
-  <div id="hospitalSearchModal" class="modal" style="display: none;">
-    <div class="modal-backdrop"></div>
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2>병원 변경</h2>
-      </div>
-      <div class="modal-body">
-        <div class="form-group">
-          <label for="hospitalSearchInput">병원명 검색</label>
-          <div class="autocomplete-wrapper">
-            <input type="text" id="hospitalSearchInput" class="form-control" placeholder="병원명을 입력하세요...">
-            <div id="hospitalSuggestions" class="suggestions-list" style="display: none;"></div>
+    <!-- 헤더 (병원명 고정) -->
+    <header class="header">
+      <div class="header-content">
+        <img
+          src="https://raw.githubusercontent.com/exgokor/abBot/refs/heads/main/src/img/AB_Bot.png"
+          alt="AJUBIO"
+          class="header-logo"
+        />
+        <div class="header-text">
+          <div class="hospital-name-row">
+            <h1 id="hospitalName">병원명 로딩 중...</h1>
+            <button id="btnSearchHospital" class="btn-search-hospital">
+              변경
+            </button>
           </div>
+          <p class="header-subtitle">담당 관리</p>
+          <p id="tokenExpiry" class="token-expiry"></p>
         </div>
       </div>
-      <div class="modal-footer">
-        <button id="btnHospitalSearchCancel" class="btn btn-secondary">취소</button>
-      </div>
-    </div>
-  </div>
+    </header>
 
-  <!-- CSO 삭제 확인 모달 -->
-  <div id="deleteModal" class="modal" style="display: none;">
-    <div class="modal-backdrop"></div>
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2>CSO 담당 삭제</h2>
+    <!-- 메인 콘텐츠 -->
+    <main class="main-content">
+      <!-- 담당 목록 (품목별 그룹) -->
+      <div id="blockList" class="block-list">
+        <!-- JS에서 동적 생성 -->
       </div>
-      <div class="modal-body">
-        <p class="delete-info">
-          <span id="deleteHospitalName" class="tag">[병원명]</span>
-          <span id="deleteCsoName" class="tag">[CSO명]</span>
-        </p>
-        <p class="delete-confirm-text">이 CSO의 모든 진료과 담당을 삭제하시겠습니까?</p>
-      </div>
-      <div class="modal-footer">
-        <button id="btnDeleteCancel" class="btn btn-secondary">취소</button>
-        <button id="btnDeleteConfirm" class="btn btn-danger">삭제</button>
-      </div>
-      <input type="hidden" id="deleteHosCd">
-      <input type="hidden" id="deleteHosCsoCd">
-      <input type="hidden" id="deleteDrugCd">
-      <input type="hidden" id="deleteSeq">
-      <input type="hidden" id="deleteCsoCd">
-    </div>
-  </div>
 
-  <!-- 진료과 추가/수정 모달 -->
-  <div id="diseaseModal" class="modal" style="display: none;">
-    <div class="modal-backdrop"></div>
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2 id="diseaseModalTitle">진료과 추가</h2>
+      <!-- 데이터 없음 메시지 -->
+      <div id="emptyMessage" class="empty-message" style="display: none">
+        <p>등록된 담당 정보가 없습니다.</p>
       </div>
-      <div class="modal-body">
-        <!-- 진료과명 (추가 시에만 입력) -->
-        <div class="form-group" id="diseaseNameGroup">
-          <label for="diseaseNameInput">진료과명</label>
-          <input type="text" id="diseaseNameInput" class="form-control" placeholder="예: 내과">
+
+      <!-- 변경사항 있을 때 저장 버튼 -->
+      <div id="changesBar" class="changes-bar" style="display: none">
+        <span id="changesCount">0개의 변경사항</span>
+        <button id="btnSaveChanges" class="btn btn-primary">저장</button>
+      </div>
+    </main>
+
+    <!-- 하단 고정 버튼 -->
+    <footer class="footer">
+      <button id="btnAddCso" class="btn btn-primary btn-full">
+        + CSO 담당 추가
+      </button>
+    </footer>
+
+    <!-- 병원 검색 모달 -->
+    <div id="hospitalSearchModal" class="modal" style="display: none">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>병원 변경</h2>
         </div>
-
-        <!-- 시작년월 -->
-        <div class="form-group">
-          <label>시작년월</label>
-          <div class="date-select-group">
-            <select id="diseaseStartYear" class="form-control">
-              <!-- JS에서 동적 생성 -->
-            </select>
-            <select id="diseaseStartMonth" class="form-control">
-              <!-- JS에서 동적 생성 -->
-            </select>
-          </div>
-        </div>
-
-        <!-- 종료년월 -->
-        <div class="form-group">
-          <label>종료년월</label>
-          <div class="date-select-group">
-            <select id="diseaseEndYear" class="form-control">
-              <!-- JS에서 동적 생성 -->
-            </select>
-            <select id="diseaseEndMonth" class="form-control">
-              <!-- JS에서 동적 생성 -->
-            </select>
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button id="btnDiseaseCancel" class="btn btn-secondary">취소</button>
-        <button id="btnDiseaseConfirm" class="btn btn-primary">확인</button>
-      </div>
-      <!-- 진료과 모달 hidden 데이터 -->
-      <input type="hidden" id="diseaseBlockKey">
-      <input type="hidden" id="diseaseMode"> <!-- add, edit, end -->
-      <input type="hidden" id="diseaseOriginal"> <!-- 수정 시 원래 진료과명 -->
-    </div>
-  </div>
-
-  <!-- CSO 추가 모달 -->
-  <div id="addModal" class="modal" style="display: none;">
-    <div class="modal-backdrop"></div>
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2>CSO 담당 추가</h2>
-      </div>
-      <div class="modal-body">
-        <!-- 품목 선택 -->
-        <div class="form-group">
-          <label for="addDrugSelect">품목</label>
-          <select id="addDrugSelect" class="form-control">
-            <option value="">품목 선택</option>
-            <!-- JS에서 동적 생성 -->
-          </select>
-        </div>
-
-        <!-- CSO 자동완성 검색 -->
-        <div class="form-group">
-          <label for="addCsoSearch">CSO</label>
-          <div class="autocomplete-wrapper">
-            <input type="text" id="addCsoSearch" class="form-control" placeholder="CSO명 검색...">
-            <div id="csoSuggestions" class="suggestions-list" style="display: none;">
-              <!-- JS에서 동적 생성 -->
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="hospitalSearchInput">병원명 검색</label>
+            <div class="autocomplete-wrapper">
+              <input
+                type="text"
+                id="hospitalSearchInput"
+                class="form-control"
+                placeholder="병원명을 입력하세요..."
+              />
+              <div
+                id="hospitalSuggestions"
+                class="suggestions-list"
+                style="display: none"
+              ></div>
             </div>
           </div>
-          <input type="hidden" id="addCsoCd">
-          <p id="selectedCsoInfo" class="selected-info" style="display: none;"></p>
         </div>
-
-        <!-- 진료과 입력 -->
-        <div class="form-group">
-          <label for="addDisease">진료과</label>
-          <input type="text" id="addDisease" class="form-control" placeholder="예: 내과, 외과">
+        <div class="modal-footer">
+          <button id="btnHospitalSearchCancel" class="btn btn-secondary">
+            취소
+          </button>
         </div>
+      </div>
+    </div>
 
-        <!-- 시작년월 -->
-        <div class="form-group">
-          <label>시작년월</label>
-          <div class="date-select-group">
-            <select id="addStartYear" class="form-control">
-              <!-- JS에서 동적 생성 -->
-            </select>
-            <select id="addStartMonth" class="form-control">
+    <!-- CSO 삭제 확인 모달 -->
+    <div id="deleteModal" class="modal" style="display: none">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>CSO 담당 삭제</h2>
+        </div>
+        <div class="modal-body">
+          <p class="delete-info">
+            <span id="deleteHospitalName" class="tag">[병원명]</span>
+            <span id="deleteCsoName" class="tag">[CSO명]</span>
+          </p>
+          <p class="delete-confirm-text">
+            이 CSO의 모든 진료과 담당을 삭제하시겠습니까?
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button id="btnDeleteCancel" class="btn btn-secondary">취소</button>
+          <button id="btnDeleteConfirm" class="btn btn-danger">삭제</button>
+        </div>
+        <input type="hidden" id="deleteHosCd" />
+        <input type="hidden" id="deleteHosCsoCd" />
+        <input type="hidden" id="deleteDrugCd" />
+        <input type="hidden" id="deleteSeq" />
+        <input type="hidden" id="deleteCsoCd" />
+      </div>
+    </div>
+
+    <!-- 진료과 추가/수정 모달 -->
+    <div id="diseaseModal" class="modal" style="display: none">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 id="diseaseModalTitle">진료과 추가</h2>
+        </div>
+        <div class="modal-body">
+          <!-- 진료과명 (추가 시에만 입력) -->
+          <div class="form-group" id="diseaseNameGroup">
+            <label for="diseaseNameInput">진료과명</label>
+            <input
+              type="text"
+              id="diseaseNameInput"
+              class="form-control"
+              placeholder="예: 내과"
+            />
+          </div>
+
+          <!-- 시작년월 -->
+          <div class="form-group">
+            <label>시작년월</label>
+            <div class="date-select-group">
+              <select id="diseaseStartYear" class="form-control">
+                <!-- JS에서 동적 생성 -->
+              </select>
+              <select id="diseaseStartMonth" class="form-control">
+                <!-- JS에서 동적 생성 -->
+              </select>
+            </div>
+          </div>
+
+          <!-- 종료년월 -->
+          <div class="form-group">
+            <label>종료년월</label>
+            <div class="date-select-group">
+              <select id="diseaseEndYear" class="form-control">
+                <!-- JS에서 동적 생성 -->
+              </select>
+              <select id="diseaseEndMonth" class="form-control">
+                <!-- JS에서 동적 생성 -->
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="btnDiseaseCancel" class="btn btn-secondary">취소</button>
+          <button id="btnDiseaseConfirm" class="btn btn-primary">확인</button>
+        </div>
+        <!-- 진료과 모달 hidden 데이터 -->
+        <input type="hidden" id="diseaseBlockKey" />
+        <input type="hidden" id="diseaseMode" />
+        <!-- add, edit, end -->
+        <input type="hidden" id="diseaseOriginal" />
+        <!-- 수정 시 원래 진료과명 -->
+      </div>
+    </div>
+
+    <!-- CSO 추가 모달 -->
+    <div id="addModal" class="modal" style="display: none">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>CSO 담당 추가</h2>
+        </div>
+        <div class="modal-body">
+          <!-- 품목 선택 -->
+          <div class="form-group">
+            <label for="addDrugSelect">품목</label>
+            <select id="addDrugSelect" class="form-control">
+              <option value="">품목 선택</option>
               <!-- JS에서 동적 생성 -->
             </select>
           </div>
-        </div>
 
-        <!-- 최초등록 체크박스 -->
-        <div class="form-group">
-          <label class="checkbox-label">
-            <input type="checkbox" id="addIsFirst">
-            <span>최초등록</span>
-          </label>
-          <p class="form-hint">해당 병원에 품목을 처음 등록하는 경우 체크</p>
+          <!-- CSO 자동완성 검색 -->
+          <div class="form-group">
+            <label for="addCsoSearch">CSO</label>
+            <div class="autocomplete-wrapper">
+              <input
+                type="text"
+                id="addCsoSearch"
+                class="form-control"
+                placeholder="CSO명 검색..."
+              />
+              <div
+                id="csoSuggestions"
+                class="suggestions-list"
+                style="display: none"
+              >
+                <!-- JS에서 동적 생성 -->
+              </div>
+            </div>
+            <input type="hidden" id="addCsoCd" />
+            <p
+              id="selectedCsoInfo"
+              class="selected-info"
+              style="display: none"
+            ></p>
+          </div>
+
+          <!-- 진료과 입력 -->
+          <div class="form-group">
+            <label for="addDisease">진료과</label>
+            <input
+              type="text"
+              id="addDisease"
+              class="form-control"
+              placeholder="예: 내과, 외과"
+            />
+          </div>
+
+          <!-- 시작년월 -->
+          <div class="form-group">
+            <label>시작년월</label>
+            <div class="date-select-group">
+              <select id="addStartYear" class="form-control">
+                <!-- JS에서 동적 생성 -->
+              </select>
+              <select id="addStartMonth" class="form-control">
+                <!-- JS에서 동적 생성 -->
+              </select>
+            </div>
+          </div>
+
+          <!-- 최초등록 체크박스 -->
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="addIsFirst" />
+              <span>최초등록</span>
+            </label>
+            <p class="form-hint">해당 병원에 품목을 처음 등록하는 경우 체크</p>
+          </div>
         </div>
-      </div>
-      <div class="modal-footer">
-        <button id="btnAddCancel" class="btn btn-secondary">취소</button>
-        <button id="btnAddConfirm" class="btn btn-primary">추가</button>
+        <div class="modal-footer">
+          <button id="btnAddCancel" class="btn btn-secondary">취소</button>
+          <button id="btnAddConfirm" class="btn btn-primary">추가</button>
+        </div>
       </div>
     </div>
-  </div>
 
-  <!-- 토스트 메시지 -->
-  <div id="toast" class="toast" style="display: none;">
-    <p id="toastMessage"></p>
-  </div>
+    <!-- 토스트 메시지 -->
+    <div id="toast" class="toast" style="display: none">
+      <p id="toastMessage"></p>
+    </div>
 
-  <script src="js/app.js"></script>
-</body>
+    <script src="js/app.js"></script>
+  </body>
 </html>
