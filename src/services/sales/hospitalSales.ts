@@ -88,6 +88,28 @@ export interface HospitalSalesResult {
   periodText: string;
 }
 
+// Phase 1: 요약 + 블록용 (빠른 첫 응답)
+export interface HospitalSummaryResult {
+  hospital: HospitalInfo;
+  summary: {
+    total_sales: number;
+    drug_count: number;
+  };
+  monthlySales: MonthlySalesData[];
+  periodMonths: number;
+  periodText: string;
+  startIndex: number;
+  endIndex: number;
+}
+
+// Phase 2: 품목 + CSO 상세용
+export interface HospitalDetailResult {
+  hospital: HospitalInfo;
+  topDrugs: DrugSalesData[];
+  topCsos: CsoSalesData[];
+  periodText: string;
+}
+
 /**
  * 병원 상세 매출 조회 (V2)
  * @param hos_cd 병원 코드
@@ -325,6 +347,260 @@ export async function getHospitalSales(
     topDrugs,
     topCsos,
     periodMonths,
+    periodText
+  };
+}
+
+/**
+ * Phase 1: 병원 요약 정보 조회 (빠른 첫 응답용)
+ * - 병원 기본정보, 월별 매출, 품목 수만 조회
+ */
+export async function getHospitalSummary(
+  hos_cd: string,
+  hos_cso_cd: string,
+  period?: PeriodInfo
+): Promise<HospitalSummaryResult | null> {
+  const pool = await getConnection();
+
+  // 병원 기본 정보 조회
+  const hospitalInfoResult = await pool.request()
+    .input('hos_cd', sql.NVarChar, hos_cd)
+    .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
+    .query(`
+      SELECT hos_cd, hos_cso_cd, hos_name, hos_abbr
+      FROM HOSPITAL_TBL
+      WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
+    `);
+
+  if (hospitalInfoResult.recordset.length === 0) {
+    return null;
+  }
+
+  const hospital = hospitalInfoResult.recordset[0] as HospitalInfo;
+
+  // 기간 정보 (없으면 현재 기간 조회)
+  const periodInfo = period || await getCurrentPeriod(3);
+  const { startIndex, endIndex, periodText, periodMonths } = periodInfo;
+
+  // 필수 쿼리만 병렬 실행 (3개)
+  const [monthlyResult, drugCountResult] = await Promise.all([
+    // 월별 매출
+    pool.request()
+      .input('hos_cd', sql.NVarChar, hos_cd)
+      .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
+      .input('startIndex', sql.Int, startIndex)
+      .input('endIndex', sql.Int, endIndex)
+      .query(`
+        SELECT sales_year, sales_month, sales_index, total_sales
+        FROM V_HOSPITAL_MONTHLY_SALES_byClaude
+        WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
+          AND sales_index BETWEEN @startIndex AND @endIndex
+        ORDER BY sales_index
+      `),
+
+    // 품목 수
+    pool.request()
+      .input('hos_cd', sql.NVarChar, hos_cd)
+      .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
+      .input('startIndex', sql.Int, startIndex)
+      .input('endIndex', sql.Int, endIndex)
+      .query(`
+        SELECT COUNT(DISTINCT drug_cd) AS drug_count
+        FROM V_HOSPITAL_DRUG_MONTHLY_byClaude
+        WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
+          AND sales_index BETWEEN @startIndex AND @endIndex
+      `)
+  ]);
+
+  const monthlySales = monthlyResult.recordset as MonthlySalesData[];
+  const drugCountData = drugCountResult.recordset[0];
+  const totalSales = monthlySales.reduce((sum, m) => sum + m.total_sales, 0);
+
+  return {
+    hospital,
+    summary: {
+      total_sales: totalSales,
+      drug_count: drugCountData?.drug_count || 0
+    },
+    monthlySales,
+    periodMonths,
+    periodText,
+    startIndex,
+    endIndex
+  };
+}
+
+/**
+ * Phase 2: 병원 상세 정보 조회 (품목 + CSO)
+ */
+export async function getHospitalDetails(
+  hos_cd: string,
+  hos_cso_cd: string,
+  startIndex: number,
+  endIndex: number,
+  periodText: string
+): Promise<HospitalDetailResult | null> {
+  const pool = await getConnection();
+
+  // 병원 기본 정보 조회
+  const hospitalInfoResult = await pool.request()
+    .input('hos_cd', sql.NVarChar, hos_cd)
+    .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
+    .query(`
+      SELECT hos_cd, hos_cso_cd, hos_name, hos_abbr
+      FROM HOSPITAL_TBL
+      WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
+    `);
+
+  if (hospitalInfoResult.recordset.length === 0) {
+    return null;
+  }
+
+  const hospital = hospitalInfoResult.recordset[0] as HospitalInfo;
+
+  // 품목 + CSO 쿼리 병렬 실행 (4개)
+  const [drugResult, drugMonthlyResult, csoResult, csoMonthlyResult] = await Promise.all([
+    // TOP 품목
+    pool.request()
+      .input('hos_cd', sql.NVarChar, hos_cd)
+      .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
+      .input('startIndex', sql.Int, startIndex)
+      .input('endIndex', sql.Int, endIndex)
+      .input('limit', sql.Int, MAX_DRUGS)
+      .query(`
+        SELECT TOP (@limit)
+          hd.drug_cd, hd.drug_name,
+          SUM(hd.total_sales) AS total_sales
+        FROM V_HOSPITAL_DRUG_MONTHLY_byClaude hd
+        WHERE hd.hos_cd = @hos_cd AND hd.hos_cso_cd = @hos_cso_cd
+          AND hd.sales_index BETWEEN @startIndex AND @endIndex
+        GROUP BY hd.drug_cd, hd.drug_name
+        ORDER BY SUM(hd.total_sales) DESC
+      `),
+
+    // TOP 품목별 월별 매출
+    pool.request()
+      .input('hos_cd', sql.NVarChar, hos_cd)
+      .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
+      .input('startIndex', sql.Int, startIndex)
+      .input('endIndex', sql.Int, endIndex)
+      .input('limit', sql.Int, MAX_DRUGS)
+      .query(`
+        SELECT hd.drug_cd, hd.drug_name, hd.sales_index, hd.total_sales
+        FROM V_HOSPITAL_DRUG_MONTHLY_byClaude hd
+        WHERE hd.hos_cd = @hos_cd AND hd.hos_cso_cd = @hos_cso_cd
+          AND hd.sales_index BETWEEN @startIndex AND @endIndex
+          AND hd.drug_cd IN (
+            SELECT TOP (@limit) drug_cd
+            FROM V_HOSPITAL_DRUG_MONTHLY_byClaude
+            WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
+              AND sales_index BETWEEN @startIndex AND @endIndex
+            GROUP BY drug_cd
+            ORDER BY SUM(total_sales) DESC
+          )
+        ORDER BY hd.drug_cd, hd.sales_index
+      `),
+
+    // TOP CSO
+    pool.request()
+      .input('hos_cd', sql.NVarChar, hos_cd)
+      .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
+      .input('startIndex', sql.Int, startIndex)
+      .input('endIndex', sql.Int, endIndex)
+      .input('limit', sql.Int, MAX_CSOS)
+      .query(`
+        SELECT TOP (@limit)
+          s.cso_cd_then AS cso_cd,
+          ISNULL(c.cso_dealer_nm, '미지정') AS cso_dealer_nm,
+          SUM(s.drug_cnt * s.drug_price) AS total_sales
+        FROM SALES_TBL s
+        LEFT JOIN CSO_TBL c ON s.cso_cd_then = c.cso_cd
+        WHERE s.hos_cd = @hos_cd AND s.hos_cso_cd = @hos_cso_cd
+          AND s.sales_index BETWEEN @startIndex AND @endIndex
+        GROUP BY s.cso_cd_then, c.cso_dealer_nm
+        ORDER BY SUM(s.drug_cnt * s.drug_price) DESC
+      `),
+
+    // TOP CSO별 월별 매출
+    pool.request()
+      .input('hos_cd', sql.NVarChar, hos_cd)
+      .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
+      .input('startIndex', sql.Int, startIndex)
+      .input('endIndex', sql.Int, endIndex)
+      .input('limit', sql.Int, MAX_CSOS)
+      .query(`
+        SELECT
+          s.cso_cd_then AS cso_cd,
+          ISNULL(c.cso_dealer_nm, '미지정') AS cso_dealer_nm,
+          s.sales_index,
+          SUM(s.drug_cnt * s.drug_price) AS total_sales
+        FROM SALES_TBL s
+        LEFT JOIN CSO_TBL c ON s.cso_cd_then = c.cso_cd
+        WHERE s.hos_cd = @hos_cd AND s.hos_cso_cd = @hos_cso_cd
+          AND s.sales_index BETWEEN @startIndex AND @endIndex
+          AND s.cso_cd_then IN (
+            SELECT TOP (@limit) cso_cd_then
+            FROM SALES_TBL
+            WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
+              AND sales_index BETWEEN @startIndex AND @endIndex
+            GROUP BY cso_cd_then
+            ORDER BY SUM(drug_cnt * drug_price) DESC
+          )
+        GROUP BY s.cso_cd_then, c.cso_dealer_nm, s.sales_index
+        ORDER BY s.cso_cd_then, s.sales_index
+      `)
+  ]);
+
+  // 품목별 월별 매출 데이터 조합
+  const drugTotals = drugResult.recordset as { drug_cd: string; drug_name: string; total_sales: number }[];
+  const drugMonthlyData = drugMonthlyResult.recordset as {
+    drug_cd: string;
+    drug_name: string;
+    sales_index: number;
+    total_sales: number;
+  }[];
+
+  const topDrugs: DrugSalesData[] = drugTotals.map(drug => {
+    const monthlyData = drugMonthlyData
+      .filter(d => d.drug_cd === drug.drug_cd)
+      .sort((a, b) => a.sales_index - b.sales_index)
+      .map(d => d.total_sales);
+
+    return {
+      drug_cd: drug.drug_cd,
+      drug_name: drug.drug_name,
+      total_sales: drug.total_sales,
+      monthlySales: monthlyData
+    };
+  });
+
+  // CSO별 월별 매출 데이터 조합
+  const csoTotals = csoResult.recordset as { cso_cd: string; cso_dealer_nm: string; total_sales: number }[];
+  const csoMonthlyData = csoMonthlyResult.recordset as {
+    cso_cd: string;
+    cso_dealer_nm: string;
+    sales_index: number;
+    total_sales: number;
+  }[];
+
+  const topCsos: CsoSalesData[] = csoTotals.map(cso => {
+    const monthlyData = csoMonthlyData
+      .filter(c => c.cso_cd === cso.cso_cd)
+      .sort((a, b) => a.sales_index - b.sales_index)
+      .map(c => c.total_sales);
+
+    return {
+      cso_cd: cso.cso_cd,
+      cso_dealer_nm: cso.cso_dealer_nm,
+      total_sales: cso.total_sales,
+      monthlySales: monthlyData
+    };
+  });
+
+  return {
+    hospital,
+    topDrugs,
+    topCsos,
     periodText
   };
 }
@@ -944,5 +1220,198 @@ function createSingleBlockBubble(
       backgroundColor: COLORS.darkNavy,
       paddingAll: '6px',
     },
+  };
+}
+
+/**
+ * Phase 1: 요약 + 블록 캐러셀 생성 (빠른 첫 응답)
+ */
+export async function createSummaryCarousel(
+  result: HospitalSummaryResult,
+  options?: { isSuperAdmin?: boolean; userId?: string }
+): Promise<any> {
+  const { hospital, summary, monthlySales, periodMonths, periodText } = result;
+  const monthlyAvg = summary.total_sales / periodMonths;
+  const trendText = monthlySales.map(m => formatSalesMoney(m.total_sales)).join(' > ');
+
+  const hospitalTitle = hospital.hos_abbr || hospital.hos_name;
+
+  const bubbles: any[] = [];
+
+  // SUPER_ADMIN인 경우 블록 수정 URL 생성
+  let blockEditUrl: string | null = null;
+  let tokenExpiresAt: Date | null = null;
+  if (options?.isSuperAdmin && options?.userId) {
+    const { uuid, token, expiresAt } = await createPageToken(
+      hospital.hos_cd,
+      hospital.hos_cso_cd,
+      options.userId,
+      60 // 60분 유효
+    );
+    const baseUrl = process.env.APP_URL || 'https://ajubio-newbot2026-86048170240.asia-northeast3.run.app';
+    blockEditUrl = `${baseUrl}/blocks?uuid=${uuid}&token=${token}`;
+    tokenExpiresAt = expiresAt;
+  }
+
+  // 1. 요약 버블 (cso_count 없이)
+  bubbles.push(createSummaryBubbleV2(hospital, hospitalTitle, summary, monthlyAvg, trendText, periodText, blockEditUrl, tokenExpiresAt));
+
+  // 2. 블록현황 버블들
+  const blocks = await getHospitalBlocks(hospital.hos_cd, hospital.hos_cso_cd);
+  if (blocks.length > 0) {
+    const blockBubbles = createBlockBubbles(hospitalTitle, blocks);
+    bubbles.push(...blockBubbles);
+  }
+
+  return {
+    type: 'carousel',
+    contents: bubbles
+  };
+}
+
+/**
+ * Phase 2: 품목 + CSO 캐러셀 생성
+ */
+export function createDetailCarousel(result: HospitalDetailResult): any[] {
+  const { hospital, topDrugs, topCsos, periodText } = result;
+  const hospitalTitle = hospital.hos_abbr || hospital.hos_name;
+
+  const bubbles: any[] = [];
+
+  // 1. 주요품목별 매출 버블들
+  if (topDrugs.length > 0) {
+    const drugBubbles = createDrugBubbles(hospital.hos_cd, hospital.hos_cso_cd, topDrugs, periodText, hospitalTitle);
+    bubbles.push(...drugBubbles);
+  }
+
+  // 2. 주요CSO별 매출 버블들
+  if (topCsos.length > 0) {
+    const csoBubbles = createCsoBubbles(hospital.hos_cd, hospital.hos_cso_cd, topCsos, periodText, hospitalTitle);
+    bubbles.push(...csoBubbles);
+  }
+
+  if (bubbles.length === 0) {
+    return [];
+  }
+
+  // NaverWorks 캐러셀 10개 제한: 초과 시 여러 캐러셀로 분할
+  const carousels: any[] = [];
+  for (let i = 0; i < bubbles.length; i += MAX_CAROUSEL_BUBBLES) {
+    carousels.push({
+      type: 'carousel',
+      contents: bubbles.slice(i, i + MAX_CAROUSEL_BUBBLES)
+    });
+  }
+
+  return carousels;
+}
+
+/**
+ * 요약 버블 생성 V2 (cso_count 없는 버전)
+ */
+function createSummaryBubbleV2(
+  _hospital: HospitalInfo,
+  hospitalTitle: string,
+  summary: { total_sales: number; drug_count: number },
+  monthlyAvg: number,
+  trendText: string,
+  periodText: string,
+  blockEditUrl?: string | null,
+  tokenExpiresAt?: Date | null
+): any {
+  // 바디 콘텐츠 생성
+  const bodyContents: any[] = [
+    { type: 'image', url: LOGO_URL, aspectRatio: '5:3', size: 'sm', aspectMode: 'fit' },
+    {
+      type: 'box',
+      layout: 'vertical',
+      contents: [
+        { type: 'text', text: hospitalTitle, size: 'md', color: COLORS.text, weight: 'bold', align: 'center', wrap: true },
+        { type: 'text', text: `조회기간: ${periodText}`, size: 'xs', color: COLORS.lightGray, align: 'center', margin: 'sm' },
+        { type: 'separator', margin: 'md', color: COLORS.border },
+        {
+          type: 'box',
+          layout: 'horizontal',
+          contents: [
+            { type: 'text', text: '월평균 매출', size: 'sm', color: COLORS.subtext },
+            { type: 'text', text: formatSalesMoney(monthlyAvg), size: 'lg', weight: 'bold', color: COLORS.text, align: 'end' }
+          ],
+          margin: 'md'
+        },
+        { type: 'text', text: `(${trendText})`, size: 'xxs', color: COLORS.subtext, align: 'end', margin: 'sm' },
+        { type: 'separator', margin: 'md', color: COLORS.border },
+        {
+          type: 'box',
+          layout: 'horizontal',
+          contents: [
+            { type: 'text', text: '거래 품목', size: 'sm', color: COLORS.subtext },
+            { type: 'text', text: `${summary.drug_count}개`, size: 'sm', weight: 'bold', color: COLORS.text, align: 'end' }
+          ],
+          margin: 'md'
+        }
+      ],
+      backgroundColor: COLORS.white,
+      cornerRadius: '12px',
+      paddingAll: '16px',
+      margin: 'md'
+    }
+  ];
+
+  // SUPER_ADMIN인 경우 블록 수정 섹션 추가
+  if (blockEditUrl) {
+    const expiresText = tokenExpiresAt
+      ? `변경 가능 시간 ~ ${String(tokenExpiresAt.getMonth() + 1).padStart(2, '0')}.${String(tokenExpiresAt.getDate()).padStart(2, '0')} ${String(tokenExpiresAt.getHours()).padStart(2, '0')}:${String(tokenExpiresAt.getMinutes()).padStart(2, '0')}`
+      : '블록 수정';
+    bodyContents.push({
+      type: 'box',
+      layout: 'vertical',
+      contents: [
+        {
+          type: 'text',
+          text: expiresText,
+          size: 'xs',
+          color: COLORS.lightGray,
+          align: 'center',
+          wrap: true
+        },
+        {
+          type: 'button',
+          action: {
+            type: 'uri',
+            label: '블록 수정',
+            uri: blockEditUrl,
+          },
+          style: 'primary',
+          height: 'sm',
+          color: COLORS.navy,
+          margin: 'sm'
+        }
+      ],
+      backgroundColor: COLORS.white,
+      cornerRadius: '12px',
+      paddingAll: '12px',
+      margin: 'md'
+    });
+  }
+
+  return {
+    type: 'bubble',
+    header: {
+      type: 'box',
+      layout: 'vertical',
+      contents: [
+        { type: 'text', text: hospitalTitle, size: 'sm', weight: 'bold', color: COLORS.white, align: 'center' }
+      ],
+      backgroundColor: COLORS.darkNavy,
+      paddingAll: '8px'
+    },
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      contents: bodyContents,
+      backgroundColor: COLORS.background,
+      paddingAll: '12px'
+    },
+    footer: createFooter()
   };
 }

@@ -2,7 +2,14 @@ import { PostbackRequest } from './index';
 import { logger } from '../utils/logger';
 import { sendTextMessage, sendFlexMessage } from '../services/naverworks/message';
 import { getCsoSales, createCsoCarousel } from '../services/sales/csoSales';
-import { getHospitalSales, createHospitalCarousel } from '../services/sales/hospitalSales';
+import {
+  getHospitalSales,
+  createHospitalCarousel,
+  getHospitalSummary,
+  getHospitalDetails,
+  createSummaryCarousel,
+  createDetailCarousel
+} from '../services/sales/hospitalSales';
 import { getDrugSales, createDrugCarousel } from '../services/sales/drugSales';
 import {
   getCsoHospitalSalesExtended,
@@ -95,16 +102,34 @@ export async function handleDepth2(
 
     case 'HOSPITAL': {
       const [hos_cd, hos_cso_cd] = code.split('|');
-      const result = await withDbRetry(userId, () => getHospitalSales(hos_cd, hos_cso_cd, period), '병원 조회');
-      if (result) {
-        const hospitalName = result.hospital.hos_abbr || result.hospital.hos_name;
-        const carousels = await createHospitalCarousel(result, {
+
+      // Phase 1: 요약 + 블록 먼저 전송 (빠른 첫 응답)
+      const summaryResult = await withDbRetry(userId, () => getHospitalSummary(hos_cd, hos_cso_cd, period), '병원 요약 조회');
+      if (summaryResult) {
+        const hospitalName = summaryResult.hospital.hos_abbr || summaryResult.hospital.hos_name;
+        const summaryCarousel = await createSummaryCarousel(summaryResult, {
           isSuperAdmin,
           userId,
         });
-        // 캐러셀이 여러 개면 순차적으로 전송 (NaverWorks 10개 버블 제한)
-        for (const carousel of carousels) {
-          await sendFlexMessage(userId, carousel, `[${hospitalName}] 병원 조회`);
+        await sendFlexMessage(userId, summaryCarousel, `[${hospitalName}] 병원 조회`);
+
+        // Phase 2: 품목 + CSO 상세 전송
+        const detailResult = await withDbRetry(
+          userId,
+          () => getHospitalDetails(
+            hos_cd,
+            hos_cso_cd,
+            summaryResult.startIndex,
+            summaryResult.endIndex,
+            summaryResult.periodText
+          ),
+          '병원 상세 조회'
+        );
+        if (detailResult) {
+          const detailCarousels = createDetailCarousel(detailResult);
+          for (const carousel of detailCarousels) {
+            await sendFlexMessage(userId, carousel, `[${hospitalName}] 상세 조회`);
+          }
         }
       }
       break;
