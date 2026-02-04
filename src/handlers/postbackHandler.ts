@@ -4,11 +4,7 @@ import { sendTextMessage, sendFlexMessage } from '../services/naverworks/message
 import { getCsoSales, createCsoCarousel } from '../services/sales/csoSales';
 import {
   getHospitalSales,
-  createHospitalCarousel,
-  getHospitalSummary,
-  getHospitalDetails,
-  createSummaryCarousel,
-  createDetailCarousel
+  createHospitalCarousel
 } from '../services/sales/hospitalSales';
 import { getDrugSales, createDrugCarousel } from '../services/sales/drugSales';
 import {
@@ -94,6 +90,8 @@ export async function handleDepth2(
     case 'CSO': {
       const result = await withDbRetry(userId, () => getCsoSales(code, period), 'CSO 조회');
       if (result) {
+        // 중간 메시지: 데이터 조회 완료, 집계 중
+        await sendTextMessage(userId, `매출 데이터 조회 완료, 집계 중...`);
         const carousel = createCsoCarousel(result);
         await sendFlexMessage(userId, carousel, `[${result.cso.cso_dealer_nm}] CSO 조회`);
       }
@@ -103,33 +101,21 @@ export async function handleDepth2(
     case 'HOSPITAL': {
       const [hos_cd, hos_cso_cd] = code.split('|');
 
-      // Phase 1: 요약 + 블록 먼저 전송 (빠른 첫 응답)
-      const summaryResult = await withDbRetry(userId, () => getHospitalSummary(hos_cd, hos_cso_cd, period), '병원 요약 조회');
-      if (summaryResult) {
-        const hospitalName = summaryResult.hospital.hos_abbr || summaryResult.hospital.hos_name;
-        const summaryCarousel = await createSummaryCarousel(summaryResult, {
+      // 모든 데이터 한번에 조회 (7개 쿼리 병렬 실행)
+      const result = await withDbRetry(userId, () => getHospitalSales(hos_cd, hos_cso_cd, period), '병원 조회');
+      if (result) {
+        const hospitalName = result.hospital.hos_abbr || result.hospital.hos_name;
+
+        // 중간 메시지: 데이터 조회 완료, 집계 중
+        await sendTextMessage(userId, `매출 데이터 조회 완료, 집계 중...`);
+
+        // 통합 캐러셀 생성 및 전송
+        const carousels = await createHospitalCarousel(result, {
           isSuperAdmin,
           userId,
         });
-        await sendFlexMessage(userId, summaryCarousel, `[${hospitalName}] 병원 조회`);
-
-        // Phase 2: 품목 + CSO 상세 전송
-        const detailResult = await withDbRetry(
-          userId,
-          () => getHospitalDetails(
-            hos_cd,
-            hos_cso_cd,
-            summaryResult.startIndex,
-            summaryResult.endIndex,
-            summaryResult.periodText
-          ),
-          '병원 상세 조회'
-        );
-        if (detailResult) {
-          const detailCarousels = createDetailCarousel(detailResult);
-          for (const carousel of detailCarousels) {
-            await sendFlexMessage(userId, carousel, `[${hospitalName}] 상세 조회`);
-          }
+        for (const carousel of carousels) {
+          await sendFlexMessage(userId, carousel, `[${hospitalName}] 병원 조회`);
         }
       }
       break;
@@ -138,6 +124,8 @@ export async function handleDepth2(
     case 'DRUG': {
       const result = await withDbRetry(userId, () => getDrugSales(code, period), '품목 조회');
       if (result) {
+        // 중간 메시지: 데이터 조회 완료, 집계 중
+        await sendTextMessage(userId, `매출 데이터 조회 완료, 집계 중...`);
         const carousel = createDrugCarousel(result, isAdmin);
         await sendFlexMessage(userId, carousel, `[${result.drug.drug_name}] 품목 조회`);
       }

@@ -125,7 +125,7 @@ async function handleDepth1Search(userId: string, keyword: string): Promise<void
   if (isSingleResult(searchResult)) {
     const entity = getSingleEntity(searchResult);
     if (entity) {
-      await sendTextMessage(userId, `"${entity.search_name}" 조회 중...`);
+      await sendTextMessage(userId, `"${entity.search_name}" 매출 데이터를 집계하고 있습니다...`);
 
       // 권한 조회 (DRUG: 관리자용 수수료율, HOSPITAL: 블록 수정 버튼)
       const permission = await getUserPermission(userId);

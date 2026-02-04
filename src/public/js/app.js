@@ -315,11 +315,11 @@ async function loadBlocks() {
     // 병원명 표시
     elements.hospitalName.textContent = state.hospitalName;
 
-    // 토큰 만료 시간 표시
+    // 토큰 만료 시간 표시 (서버에서 KST로 저장하므로 UTC로 읽어야 중복 변환 방지)
     if (response.expiresAt) {
       const expiresAt = new Date(response.expiresAt);
-      const hours = String(expiresAt.getHours()).padStart(2, '0');
-      const minutes = String(expiresAt.getMinutes()).padStart(2, '0');
+      const hours = String(expiresAt.getUTCHours()).padStart(2, '0');
+      const minutes = String(expiresAt.getUTCMinutes()).padStart(2, '0');
       elements.tokenExpiry.textContent = `~${hours}:${minutes}까지 유효`;
     }
 
