@@ -208,7 +208,7 @@ export async function getHospitalSales(
         ORDER BY hd.drug_cd, hd.sales_index
       `),
 
-    // TOP CSO (최대 10개)
+    // TOP CSO (최대 10개) - V_CSO_HOSPITAL_MONTHLY_byClaude 뷰 사용
     pool.request()
       .input('hos_cd', sql.NVarChar, hos_cd)
       .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
@@ -217,18 +217,17 @@ export async function getHospitalSales(
       .input('limit', sql.Int, MAX_CSOS)
       .query(`
         SELECT TOP (@limit)
-          s.cso_cd_then AS cso_cd,
-          ISNULL(c.cso_dealer_nm, '미지정') AS cso_dealer_nm,
-          SUM(s.drug_cnt * s.drug_price) AS total_sales
-        FROM SALES_TBL s
-        LEFT JOIN CSO_TBL c ON s.cso_cd_then = c.cso_cd
-        WHERE s.hos_cd = @hos_cd AND s.hos_cso_cd = @hos_cso_cd
-          AND s.sales_index BETWEEN @startIndex AND @endIndex
-        GROUP BY s.cso_cd_then, c.cso_dealer_nm
-        ORDER BY SUM(s.drug_cnt * s.drug_price) DESC
+          cso_cd,
+          ISNULL(cso_dealer_nm, '미지정') AS cso_dealer_nm,
+          SUM(total_sales) AS total_sales
+        FROM V_CSO_HOSPITAL_MONTHLY_byClaude
+        WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
+          AND sales_index BETWEEN @startIndex AND @endIndex
+        GROUP BY cso_cd, cso_dealer_nm
+        ORDER BY SUM(total_sales) DESC
       `),
 
-    // TOP CSO별 월별 매출
+    // TOP CSO별 월별 매출 - V_CSO_HOSPITAL_MONTHLY_byClaude 뷰 사용
     pool.request()
       .input('hos_cd', sql.NVarChar, hos_cd)
       .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
@@ -237,24 +236,22 @@ export async function getHospitalSales(
       .input('limit', sql.Int, MAX_CSOS)
       .query(`
         SELECT
-          s.cso_cd_then AS cso_cd,
-          ISNULL(c.cso_dealer_nm, '미지정') AS cso_dealer_nm,
-          s.sales_index,
-          SUM(s.drug_cnt * s.drug_price) AS total_sales
-        FROM SALES_TBL s
-        LEFT JOIN CSO_TBL c ON s.cso_cd_then = c.cso_cd
-        WHERE s.hos_cd = @hos_cd AND s.hos_cso_cd = @hos_cso_cd
-          AND s.sales_index BETWEEN @startIndex AND @endIndex
-          AND s.cso_cd_then IN (
-            SELECT TOP (@limit) cso_cd_then
-            FROM SALES_TBL
+          v.cso_cd,
+          ISNULL(v.cso_dealer_nm, '미지정') AS cso_dealer_nm,
+          v.sales_index,
+          v.total_sales
+        FROM V_CSO_HOSPITAL_MONTHLY_byClaude v
+        WHERE v.hos_cd = @hos_cd AND v.hos_cso_cd = @hos_cso_cd
+          AND v.sales_index BETWEEN @startIndex AND @endIndex
+          AND v.cso_cd IN (
+            SELECT TOP (@limit) cso_cd
+            FROM V_CSO_HOSPITAL_MONTHLY_byClaude
             WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
               AND sales_index BETWEEN @startIndex AND @endIndex
-            GROUP BY cso_cd_then
-            ORDER BY SUM(drug_cnt * drug_price) DESC
+            GROUP BY cso_cd
+            ORDER BY SUM(total_sales) DESC
           )
-        GROUP BY s.cso_cd_then, c.cso_dealer_nm, s.sales_index
-        ORDER BY s.cso_cd_then, s.sales_index
+        ORDER BY v.cso_cd, v.sales_index
       `),
 
     // 요약 - 품목 수
@@ -270,15 +267,15 @@ export async function getHospitalSales(
           AND sales_index BETWEEN @startIndex AND @endIndex
       `),
 
-    // 요약 - CSO 수
+    // 요약 - CSO 수 - V_CSO_HOSPITAL_MONTHLY_byClaude 뷰 사용
     pool.request()
       .input('hos_cd', sql.NVarChar, hos_cd)
       .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
       .input('startIndex', sql.Int, startIndex)
       .input('endIndex', sql.Int, endIndex)
       .query(`
-        SELECT COUNT(DISTINCT cso_cd_then) AS cso_count
-        FROM SALES_TBL
+        SELECT COUNT(DISTINCT cso_cd) AS cso_count
+        FROM V_CSO_HOSPITAL_MONTHLY_byClaude
         WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
           AND sales_index BETWEEN @startIndex AND @endIndex
       `)
@@ -501,7 +498,7 @@ export async function getHospitalDetails(
         ORDER BY hd.drug_cd, hd.sales_index
       `),
 
-    // TOP CSO
+    // TOP CSO - V_CSO_HOSPITAL_MONTHLY_byClaude 뷰 사용
     pool.request()
       .input('hos_cd', sql.NVarChar, hos_cd)
       .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
@@ -510,18 +507,17 @@ export async function getHospitalDetails(
       .input('limit', sql.Int, MAX_CSOS)
       .query(`
         SELECT TOP (@limit)
-          s.cso_cd_then AS cso_cd,
-          ISNULL(c.cso_dealer_nm, '미지정') AS cso_dealer_nm,
-          SUM(s.drug_cnt * s.drug_price) AS total_sales
-        FROM SALES_TBL s
-        LEFT JOIN CSO_TBL c ON s.cso_cd_then = c.cso_cd
-        WHERE s.hos_cd = @hos_cd AND s.hos_cso_cd = @hos_cso_cd
-          AND s.sales_index BETWEEN @startIndex AND @endIndex
-        GROUP BY s.cso_cd_then, c.cso_dealer_nm
-        ORDER BY SUM(s.drug_cnt * s.drug_price) DESC
+          cso_cd,
+          ISNULL(cso_dealer_nm, '미지정') AS cso_dealer_nm,
+          SUM(total_sales) AS total_sales
+        FROM V_CSO_HOSPITAL_MONTHLY_byClaude
+        WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
+          AND sales_index BETWEEN @startIndex AND @endIndex
+        GROUP BY cso_cd, cso_dealer_nm
+        ORDER BY SUM(total_sales) DESC
       `),
 
-    // TOP CSO별 월별 매출
+    // TOP CSO별 월별 매출 - V_CSO_HOSPITAL_MONTHLY_byClaude 뷰 사용
     pool.request()
       .input('hos_cd', sql.NVarChar, hos_cd)
       .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
@@ -530,24 +526,22 @@ export async function getHospitalDetails(
       .input('limit', sql.Int, MAX_CSOS)
       .query(`
         SELECT
-          s.cso_cd_then AS cso_cd,
-          ISNULL(c.cso_dealer_nm, '미지정') AS cso_dealer_nm,
-          s.sales_index,
-          SUM(s.drug_cnt * s.drug_price) AS total_sales
-        FROM SALES_TBL s
-        LEFT JOIN CSO_TBL c ON s.cso_cd_then = c.cso_cd
-        WHERE s.hos_cd = @hos_cd AND s.hos_cso_cd = @hos_cso_cd
-          AND s.sales_index BETWEEN @startIndex AND @endIndex
-          AND s.cso_cd_then IN (
-            SELECT TOP (@limit) cso_cd_then
-            FROM SALES_TBL
+          v.cso_cd,
+          ISNULL(v.cso_dealer_nm, '미지정') AS cso_dealer_nm,
+          v.sales_index,
+          v.total_sales
+        FROM V_CSO_HOSPITAL_MONTHLY_byClaude v
+        WHERE v.hos_cd = @hos_cd AND v.hos_cso_cd = @hos_cso_cd
+          AND v.sales_index BETWEEN @startIndex AND @endIndex
+          AND v.cso_cd IN (
+            SELECT TOP (@limit) cso_cd
+            FROM V_CSO_HOSPITAL_MONTHLY_byClaude
             WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
               AND sales_index BETWEEN @startIndex AND @endIndex
-            GROUP BY cso_cd_then
-            ORDER BY SUM(drug_cnt * drug_price) DESC
+            GROUP BY cso_cd
+            ORDER BY SUM(total_sales) DESC
           )
-        GROUP BY s.cso_cd_then, c.cso_dealer_nm, s.sales_index
-        ORDER BY s.cso_cd_then, s.sales_index
+        ORDER BY v.cso_cd, v.sales_index
       `)
   ]);
 

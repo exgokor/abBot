@@ -13,21 +13,34 @@ export interface UserPermission {
   role: UserRole;
 }
 
+// 권한 캐시 (userId -> { permission, expiresAt })
+const permissionCache = new Map<string, { permission: UserPermission; expiresAt: number }>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5분
+
 export async function getUserPermission(userId: string): Promise<UserPermission | null> {
+  // 캐시 확인
+  const cached = permissionCache.get(userId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.permission;
+  }
+
   try {
     const result = await executeQuery<{ userId: string; role: string }>(
       `SELECT userId, role FROM UserPermissions WHERE userId = @userId`,
       { userId }
     );
 
-    if (result.length === 0) {
-      return { userId, role: UserRole.USER }; // 기본 권한
-    }
+    const permission: UserPermission = result.length === 0
+      ? { userId, role: UserRole.USER }
+      : { userId: result[0].userId, role: result[0].role as UserRole };
 
-    return {
-      userId: result[0].userId,
-      role: result[0].role as UserRole,
-    };
+    // 캐시에 저장
+    permissionCache.set(userId, {
+      permission,
+      expiresAt: Date.now() + CACHE_TTL_MS
+    });
+
+    return permission;
   } catch (error) {
     logger.error(`Failed to get user permission for ${userId}`, error);
     return null;

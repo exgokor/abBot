@@ -98,29 +98,17 @@ async function handleDepth1Search(
 ): Promise<void> {
   const t0 = Date.now();
 
-  // 즉시 안내 메시지 전송
+  // 즉시 안내 메시지 전송 (await 없이 fire-and-forget)
   sendTextMessage(userId, `[ ${keyword} ] 검색 중...`);
 
-  // 기간 정보 조회
-  const period = await withDbRetry(
-    userId,
-    () => getCurrentPeriod(3),
-    "기간 조회",
-  );
-  logger.info(`[PERF] 기간조회: ${Date.now() - t0}ms`);
+  // 기간 조회 + 검색을 병렬 실행
+  const [period, searchResult] = await Promise.all([
+    withDbRetry(userId, () => getCurrentPeriod(3), "기간 조회"),
+    withDbRetry(userId, () => searchAll(keyword), "검색"),
+  ]);
+  logger.info(`[PERF] 기간+검색 병렬: ${Date.now() - t0}ms`);
 
-  if (!period) return;
-
-  // 통합 검색 실행
-  const t1 = Date.now();
-  const searchResult = await withDbRetry(
-    userId,
-    () => searchAll(keyword),
-    "검색",
-  );
-  logger.info(`[PERF] 검색: ${Date.now() - t1}ms`);
-
-  if (!searchResult) return;
+  if (!period || !searchResult) return;
 
   const totalCount = getTotalCount(searchResult);
 

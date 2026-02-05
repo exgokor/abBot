@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
-import { getAccessToken, refreshAccessToken } from './auth';
+import { tokenManager } from '../token/manager';
 import { FlexibleTemplate, TextContent } from './types';
 
 const API_BASE_URL = 'https://www.worksapis.com/v1.0';
@@ -22,10 +22,9 @@ export interface WorksUser {
  * NaverWorks 사용자 목록 조회
  */
 export async function usersList(): Promise<WorksUser[]> {
-  const accessToken = await getAccessToken();
   const getURL = `${API_BASE_URL}/users?domainId=${config.naverWorks.domainId}`;
 
-  try {
+  return await tokenManager.executeWithToken(async (accessToken) => {
     const response = await axios.get(getURL, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
@@ -46,12 +45,7 @@ export async function usersList(): Promise<WorksUser[]> {
 
     logger.info(`Fetched ${list.length} users from NaverWorks`);
     return list;
-  } catch (error) {
-    if (axios.isAxiosError(error)) {
-      logger.error(`Failed to fetch users: ${error.response?.status} ${JSON.stringify(error.response?.data)}`);
-    }
-    throw error;
-  }
+  });
 }
 
 export async function sendTextMessage(userId: string, text: string): Promise<void> {
@@ -80,9 +74,8 @@ export async function sendFlexMessage(userId: string, flexContent: any, altText?
 }
 
 async function sendMessage(userId: string, content: any): Promise<void> {
-  let accessToken = await getAccessToken();
-
-  try {
+  // TokenManager를 통해 토큰 획득 + 401 시 자동 재시도 (중복 갱신 방지)
+  await tokenManager.executeWithToken(async (accessToken) => {
     await axios.post(
       `${API_BASE_URL}/bots/${config.naverWorks.botId}/users/${userId}/messages`,
       content,
@@ -94,33 +87,7 @@ async function sendMessage(userId: string, content: any): Promise<void> {
       }
     );
     logger.info(`Message sent to user: ${userId}`);
-  } catch (error) {
-    if (axios.isAxiosError(error) && error.response?.status === 401) {
-      logger.info('Token expired, refreshing and retrying...');
-
-      // 토큰 갱신 후 재시도
-      accessToken = await refreshAccessToken();
-
-      await axios.post(
-        `${API_BASE_URL}/bots/${config.naverWorks.botId}/users/${userId}/messages`,
-        content,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-      logger.info(`Message sent to user (after token refresh): ${userId}`);
-      return;
-    }
-
-    if (axios.isAxiosError(error)) {
-      logger.error(`Failed to send message: ${error.response?.status}`);
-      logger.error(`Error detail: ${JSON.stringify(error.response?.data)}`);
-    }
-    throw error;
-  }
+  });
 }
 
 // Flexible Template 헬퍼 함수
