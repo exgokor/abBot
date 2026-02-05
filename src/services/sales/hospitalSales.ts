@@ -143,56 +143,24 @@ export async function getHospitalSales(
   const periodInfo = period || await getCurrentPeriod(3);
   const { startIndex, endIndex, periodText, periodMonths } = periodInfo;
 
-  // 병렬 쿼리 실행
-  const [
-    monthlyResult,
-    drugResult,
-    drugMonthlyResult,
-    csoResult,
-    csoMonthlyResult,
-    drugCountResult,
-    csoCountResult
-  ] = await Promise.all([
-    // 월별 매출
+  // 병렬 쿼리 실행 - 7개 → 2개로 통합 (네트워크 왕복 최소화)
+  const [drugQueryResult, csoQueryResult] = await Promise.all([
+    // 통합 쿼리 1: 월별 매출 + 품목 데이터 (3개 결과셋)
     pool.request()
       .input('hos_cd', sql.NVarChar, hos_cd)
       .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
       .input('startIndex', sql.Int, startIndex)
       .input('endIndex', sql.Int, endIndex)
+      .input('limit', sql.Int, MAX_DRUGS)
       .query(`
+        -- 1. 월별 매출
         SELECT sales_year, sales_month, sales_index, total_sales
         FROM V_HOSPITAL_MONTHLY_SALES_byClaude
         WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
           AND sales_index BETWEEN @startIndex AND @endIndex
-        ORDER BY sales_index
-      `),
+        ORDER BY sales_index;
 
-    // TOP 품목 (최대 10개)
-    pool.request()
-      .input('hos_cd', sql.NVarChar, hos_cd)
-      .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
-      .input('startIndex', sql.Int, startIndex)
-      .input('endIndex', sql.Int, endIndex)
-      .input('limit', sql.Int, MAX_DRUGS)
-      .query(`
-        SELECT TOP (@limit)
-          hd.drug_cd, hd.drug_name,
-          SUM(hd.total_sales) AS total_sales
-        FROM V_HOSPITAL_DRUG_MONTHLY_byClaude hd
-        WHERE hd.hos_cd = @hos_cd AND hd.hos_cso_cd = @hos_cso_cd
-          AND hd.sales_index BETWEEN @startIndex AND @endIndex
-        GROUP BY hd.drug_cd, hd.drug_name
-        ORDER BY SUM(hd.total_sales) DESC
-      `),
-
-    // TOP 품목별 월별 매출
-    pool.request()
-      .input('hos_cd', sql.NVarChar, hos_cd)
-      .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
-      .input('startIndex', sql.Int, startIndex)
-      .input('endIndex', sql.Int, endIndex)
-      .input('limit', sql.Int, MAX_DRUGS)
-      .query(`
+        -- 2. TOP 품목별 월별 매출 (총액 포함)
         SELECT hd.drug_cd, hd.drug_name, hd.sales_index, hd.total_sales
         FROM V_HOSPITAL_DRUG_MONTHLY_byClaude hd
         WHERE hd.hos_cd = @hos_cd AND hd.hos_cso_cd = @hos_cso_cd
@@ -205,29 +173,16 @@ export async function getHospitalSales(
             GROUP BY drug_cd
             ORDER BY SUM(total_sales) DESC
           )
-        ORDER BY hd.drug_cd, hd.sales_index
-      `),
+        ORDER BY hd.drug_cd, hd.sales_index;
 
-    // TOP CSO (최대 10개) - V_CSO_HOSPITAL_MONTHLY_byClaude 뷰 사용
-    pool.request()
-      .input('hos_cd', sql.NVarChar, hos_cd)
-      .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
-      .input('startIndex', sql.Int, startIndex)
-      .input('endIndex', sql.Int, endIndex)
-      .input('limit', sql.Int, MAX_CSOS)
-      .query(`
-        SELECT TOP (@limit)
-          cso_cd,
-          ISNULL(cso_dealer_nm, '미지정') AS cso_dealer_nm,
-          SUM(total_sales) AS total_sales
-        FROM V_CSO_HOSPITAL_MONTHLY_byClaude
+        -- 3. 품목 수
+        SELECT COUNT(DISTINCT drug_cd) AS drug_count
+        FROM V_HOSPITAL_DRUG_MONTHLY_byClaude
         WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
-          AND sales_index BETWEEN @startIndex AND @endIndex
-        GROUP BY cso_cd, cso_dealer_nm
-        ORDER BY SUM(total_sales) DESC
+          AND sales_index BETWEEN @startIndex AND @endIndex;
       `),
 
-    // TOP CSO별 월별 매출 - V_CSO_HOSPITAL_MONTHLY_byClaude 뷰 사용
+    // 통합 쿼리 2: CSO 데이터 (2개 결과셋) - 집계 테이블 사용
     pool.request()
       .input('hos_cd', sql.NVarChar, hos_cd)
       .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
@@ -235,58 +190,47 @@ export async function getHospitalSales(
       .input('endIndex', sql.Int, endIndex)
       .input('limit', sql.Int, MAX_CSOS)
       .query(`
+        -- 1. TOP CSO별 월별 매출
         SELECT
           v.cso_cd,
           ISNULL(v.cso_dealer_nm, '미지정') AS cso_dealer_nm,
           v.sales_index,
           v.total_sales
-        FROM V_CSO_HOSPITAL_MONTHLY_byClaude v
+        FROM AGG_CSO_HOSPITAL_MONTHLY v
         WHERE v.hos_cd = @hos_cd AND v.hos_cso_cd = @hos_cso_cd
           AND v.sales_index BETWEEN @startIndex AND @endIndex
           AND v.cso_cd IN (
             SELECT TOP (@limit) cso_cd
-            FROM V_CSO_HOSPITAL_MONTHLY_byClaude
+            FROM AGG_CSO_HOSPITAL_MONTHLY
             WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
               AND sales_index BETWEEN @startIndex AND @endIndex
             GROUP BY cso_cd
             ORDER BY SUM(total_sales) DESC
           )
-        ORDER BY v.cso_cd, v.sales_index
-      `),
+        ORDER BY v.cso_cd, v.sales_index;
 
-    // 요약 - 품목 수
-    pool.request()
-      .input('hos_cd', sql.NVarChar, hos_cd)
-      .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
-      .input('startIndex', sql.Int, startIndex)
-      .input('endIndex', sql.Int, endIndex)
-      .query(`
-        SELECT COUNT(DISTINCT drug_cd) AS drug_count
-        FROM V_HOSPITAL_DRUG_MONTHLY_byClaude
-        WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
-          AND sales_index BETWEEN @startIndex AND @endIndex
-      `),
-
-    // 요약 - CSO 수 - V_CSO_HOSPITAL_MONTHLY_byClaude 뷰 사용
-    pool.request()
-      .input('hos_cd', sql.NVarChar, hos_cd)
-      .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
-      .input('startIndex', sql.Int, startIndex)
-      .input('endIndex', sql.Int, endIndex)
-      .query(`
+        -- 2. CSO 수
         SELECT COUNT(DISTINCT cso_cd) AS cso_count
-        FROM V_CSO_HOSPITAL_MONTHLY_byClaude
+        FROM AGG_CSO_HOSPITAL_MONTHLY
         WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
-          AND sales_index BETWEEN @startIndex AND @endIndex
+          AND sales_index BETWEEN @startIndex AND @endIndex;
       `)
   ]);
+
+  // 결과셋 분리 (타입 캐스팅)
+  const drugRecordsets = drugQueryResult.recordsets as any[];
+  const csoRecordsets = csoQueryResult.recordsets as any[];
+  const monthlyResult = { recordset: drugRecordsets[0] };
+  const drugMonthlyResult = { recordset: drugRecordsets[1] };
+  const drugCountResult = { recordset: drugRecordsets[2] };
+  const csoMonthlyResult = { recordset: csoRecordsets[0] };
+  const csoCountResult = { recordset: csoRecordsets[1] };
 
   const monthlySales = monthlyResult.recordset as MonthlySalesData[];
   const drugCountData = drugCountResult.recordset[0];
   const csoCountData = csoCountResult.recordset[0];
 
-  // 품목별 월별 매출 데이터 조합
-  const drugTotals = drugResult.recordset as { drug_cd: string; drug_name: string; total_sales: number }[];
+  // 품목별 월별 매출 데이터 조합 (월별 데이터에서 총액 계산)
   const drugMonthlyData = drugMonthlyResult.recordset as {
     drug_cd: string;
     drug_name: string;
@@ -294,22 +238,29 @@ export async function getHospitalSales(
     total_sales: number;
   }[];
 
-  const topDrugs: DrugSalesData[] = drugTotals.map(drug => {
-    const monthlyData = drugMonthlyData
-      .filter(d => d.drug_cd === drug.drug_cd)
-      .sort((a, b) => a.sales_index - b.sales_index)
-      .map(d => d.total_sales);
+  // 품목별로 그룹화하여 총액 계산
+  const drugMap = new Map<string, { drug_name: string; total: number; monthly: number[] }>();
+  for (const row of drugMonthlyData) {
+    if (!drugMap.has(row.drug_cd)) {
+      drugMap.set(row.drug_cd, { drug_name: row.drug_name, total: 0, monthly: [] });
+    }
+    const entry = drugMap.get(row.drug_cd)!;
+    entry.total += row.total_sales;
+    entry.monthly.push(row.total_sales);
+  }
 
-    return {
-      drug_cd: drug.drug_cd,
-      drug_name: drug.drug_name,
-      total_sales: drug.total_sales,
-      monthlySales: monthlyData
-    };
-  });
+  // 총액 기준 정렬
+  const topDrugs: DrugSalesData[] = Array.from(drugMap.entries())
+    .map(([drug_cd, data]) => ({
+      drug_cd,
+      drug_name: data.drug_name,
+      total_sales: data.total,
+      monthlySales: data.monthly
+    }))
+    .sort((a, b) => b.total_sales - a.total_sales)
+    .slice(0, MAX_DRUGS);
 
-  // CSO별 월별 매출 데이터 조합
-  const csoTotals = csoResult.recordset as { cso_cd: string; cso_dealer_nm: string; total_sales: number }[];
+  // CSO별 월별 매출 데이터 조합 (월별 데이터에서 총액 계산)
   const csoMonthlyData = csoMonthlyResult.recordset as {
     cso_cd: string;
     cso_dealer_nm: string;
@@ -317,19 +268,27 @@ export async function getHospitalSales(
     total_sales: number;
   }[];
 
-  const topCsos: CsoSalesData[] = csoTotals.map(cso => {
-    const monthlyData = csoMonthlyData
-      .filter(c => c.cso_cd === cso.cso_cd)
-      .sort((a, b) => a.sales_index - b.sales_index)
-      .map(c => c.total_sales);
+  // CSO별로 그룹화하여 총액 계산
+  const csoMap = new Map<string, { cso_dealer_nm: string; total: number; monthly: number[] }>();
+  for (const row of csoMonthlyData) {
+    if (!csoMap.has(row.cso_cd)) {
+      csoMap.set(row.cso_cd, { cso_dealer_nm: row.cso_dealer_nm, total: 0, monthly: [] });
+    }
+    const entry = csoMap.get(row.cso_cd)!;
+    entry.total += row.total_sales;
+    entry.monthly.push(row.total_sales);
+  }
 
-    return {
-      cso_cd: cso.cso_cd,
-      cso_dealer_nm: cso.cso_dealer_nm,
-      total_sales: cso.total_sales,
-      monthlySales: monthlyData
-    };
-  });
+  // 총액 기준 정렬
+  const topCsos: CsoSalesData[] = Array.from(csoMap.entries())
+    .map(([cso_cd, data]) => ({
+      cso_cd,
+      cso_dealer_nm: data.cso_dealer_nm,
+      total_sales: data.total,
+      monthlySales: data.monthly
+    }))
+    .sort((a, b) => b.total_sales - a.total_sales)
+    .slice(0, MAX_CSOS);
 
   const totalSales = monthlySales.reduce((sum, m) => sum + m.total_sales, 0);
 
@@ -455,27 +414,9 @@ export async function getHospitalDetails(
 
   const hospital = hospitalInfoResult.recordset[0] as HospitalInfo;
 
-  // 품목 + CSO 쿼리 병렬 실행 (4개)
-  const [drugResult, drugMonthlyResult, csoResult, csoMonthlyResult] = await Promise.all([
-    // TOP 품목
-    pool.request()
-      .input('hos_cd', sql.NVarChar, hos_cd)
-      .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
-      .input('startIndex', sql.Int, startIndex)
-      .input('endIndex', sql.Int, endIndex)
-      .input('limit', sql.Int, MAX_DRUGS)
-      .query(`
-        SELECT TOP (@limit)
-          hd.drug_cd, hd.drug_name,
-          SUM(hd.total_sales) AS total_sales
-        FROM V_HOSPITAL_DRUG_MONTHLY_byClaude hd
-        WHERE hd.hos_cd = @hos_cd AND hd.hos_cso_cd = @hos_cso_cd
-          AND hd.sales_index BETWEEN @startIndex AND @endIndex
-        GROUP BY hd.drug_cd, hd.drug_name
-        ORDER BY SUM(hd.total_sales) DESC
-      `),
-
-    // TOP 품목별 월별 매출
+  // 품목 + CSO 쿼리 병렬 실행 (4개 → 2개 통합)
+  const [drugQueryResult, csoQueryResult] = await Promise.all([
+    // 통합 쿼리 1: TOP 품목별 월별 매출
     pool.request()
       .input('hos_cd', sql.NVarChar, hos_cd)
       .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
@@ -498,26 +439,7 @@ export async function getHospitalDetails(
         ORDER BY hd.drug_cd, hd.sales_index
       `),
 
-    // TOP CSO - V_CSO_HOSPITAL_MONTHLY_byClaude 뷰 사용
-    pool.request()
-      .input('hos_cd', sql.NVarChar, hos_cd)
-      .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
-      .input('startIndex', sql.Int, startIndex)
-      .input('endIndex', sql.Int, endIndex)
-      .input('limit', sql.Int, MAX_CSOS)
-      .query(`
-        SELECT TOP (@limit)
-          cso_cd,
-          ISNULL(cso_dealer_nm, '미지정') AS cso_dealer_nm,
-          SUM(total_sales) AS total_sales
-        FROM V_CSO_HOSPITAL_MONTHLY_byClaude
-        WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
-          AND sales_index BETWEEN @startIndex AND @endIndex
-        GROUP BY cso_cd, cso_dealer_nm
-        ORDER BY SUM(total_sales) DESC
-      `),
-
-    // TOP CSO별 월별 매출 - V_CSO_HOSPITAL_MONTHLY_byClaude 뷰 사용
+    // 통합 쿼리 2: TOP CSO별 월별 매출 - 집계 테이블 사용
     pool.request()
       .input('hos_cd', sql.NVarChar, hos_cd)
       .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
@@ -530,12 +452,12 @@ export async function getHospitalDetails(
           ISNULL(v.cso_dealer_nm, '미지정') AS cso_dealer_nm,
           v.sales_index,
           v.total_sales
-        FROM V_CSO_HOSPITAL_MONTHLY_byClaude v
+        FROM AGG_CSO_HOSPITAL_MONTHLY v
         WHERE v.hos_cd = @hos_cd AND v.hos_cso_cd = @hos_cso_cd
           AND v.sales_index BETWEEN @startIndex AND @endIndex
           AND v.cso_cd IN (
             SELECT TOP (@limit) cso_cd
-            FROM V_CSO_HOSPITAL_MONTHLY_byClaude
+            FROM AGG_CSO_HOSPITAL_MONTHLY
             WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
               AND sales_index BETWEEN @startIndex AND @endIndex
             GROUP BY cso_cd
@@ -546,50 +468,62 @@ export async function getHospitalDetails(
   ]);
 
   // 품목별 월별 매출 데이터 조합
-  const drugTotals = drugResult.recordset as { drug_cd: string; drug_name: string; total_sales: number }[];
-  const drugMonthlyData = drugMonthlyResult.recordset as {
+  const drugMonthlyData = drugQueryResult.recordset as {
     drug_cd: string;
     drug_name: string;
     sales_index: number;
     total_sales: number;
   }[];
 
-  const topDrugs: DrugSalesData[] = drugTotals.map(drug => {
-    const monthlyData = drugMonthlyData
-      .filter(d => d.drug_cd === drug.drug_cd)
-      .sort((a, b) => a.sales_index - b.sales_index)
-      .map(d => d.total_sales);
+  // 품목별로 그룹화하여 총액 계산
+  const drugMap = new Map<string, { drug_name: string; total: number; monthly: number[] }>();
+  for (const row of drugMonthlyData) {
+    if (!drugMap.has(row.drug_cd)) {
+      drugMap.set(row.drug_cd, { drug_name: row.drug_name, total: 0, monthly: [] });
+    }
+    const entry = drugMap.get(row.drug_cd)!;
+    entry.total += row.total_sales;
+    entry.monthly.push(row.total_sales);
+  }
 
-    return {
-      drug_cd: drug.drug_cd,
-      drug_name: drug.drug_name,
-      total_sales: drug.total_sales,
-      monthlySales: monthlyData
-    };
-  });
+  const topDrugs: DrugSalesData[] = Array.from(drugMap.entries())
+    .map(([drug_cd, data]) => ({
+      drug_cd,
+      drug_name: data.drug_name,
+      total_sales: data.total,
+      monthlySales: data.monthly
+    }))
+    .sort((a, b) => b.total_sales - a.total_sales)
+    .slice(0, MAX_DRUGS);
 
   // CSO별 월별 매출 데이터 조합
-  const csoTotals = csoResult.recordset as { cso_cd: string; cso_dealer_nm: string; total_sales: number }[];
-  const csoMonthlyData = csoMonthlyResult.recordset as {
+  const csoMonthlyData = csoQueryResult.recordset as {
     cso_cd: string;
     cso_dealer_nm: string;
     sales_index: number;
     total_sales: number;
   }[];
 
-  const topCsos: CsoSalesData[] = csoTotals.map(cso => {
-    const monthlyData = csoMonthlyData
-      .filter(c => c.cso_cd === cso.cso_cd)
-      .sort((a, b) => a.sales_index - b.sales_index)
-      .map(c => c.total_sales);
+  // CSO별로 그룹화하여 총액 계산
+  const csoMap = new Map<string, { cso_dealer_nm: string; total: number; monthly: number[] }>();
+  for (const row of csoMonthlyData) {
+    if (!csoMap.has(row.cso_cd)) {
+      csoMap.set(row.cso_cd, { cso_dealer_nm: row.cso_dealer_nm, total: 0, monthly: [] });
+    }
+    const entry = csoMap.get(row.cso_cd)!;
+    entry.total += row.total_sales;
+    entry.monthly.push(row.total_sales);
+  }
 
-    return {
-      cso_cd: cso.cso_cd,
-      cso_dealer_nm: cso.cso_dealer_nm,
-      total_sales: cso.total_sales,
-      monthlySales: monthlyData
-    };
-  });
+  const topCsos: CsoSalesData[] = Array.from(csoMap.entries())
+    .map(([cso_cd, data]) => ({
+      cso_cd,
+      cso_dealer_nm: data.cso_dealer_nm,
+      total_sales: data.total,
+      monthlySales: data.monthly
+    }))
+    .sort((a, b) => b.total_sales - a.total_sales)
+    .slice(0, MAX_CSOS);
 
   return {
     hospital,
