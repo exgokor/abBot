@@ -153,15 +153,19 @@ export async function getHospitalSales(
     drugCountResult,
     csoCountResult
   ] = await Promise.all([
-    // 월별 매출
+    // 월별 매출 (집계 테이블 사용)
     pool.request()
       .input('hos_cd', sql.NVarChar, hos_cd)
       .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
       .input('startIndex', sql.Int, startIndex)
       .input('endIndex', sql.Int, endIndex)
       .query(`
-        SELECT sales_year, sales_month, sales_index, total_sales
-        FROM V_HOSPITAL_MONTHLY_SALES_byClaude
+        SELECT
+          ((sales_index + 1) / 12) + 2000 AS sales_year,
+          CASE WHEN (sales_index + 1) % 12 = 0 THEN 12 ELSE (sales_index + 1) % 12 END AS sales_month,
+          sales_index,
+          total_sales
+        FROM HOSPITAL_MONTHLY_SALES_AGG
         WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
           AND sales_index BETWEEN @startIndex AND @endIndex
         ORDER BY sales_index
@@ -382,23 +386,27 @@ export async function getHospitalSummary(
   const periodInfo = period || await getCurrentPeriod(3);
   const { startIndex, endIndex, periodText, periodMonths } = periodInfo;
 
-  // 필수 쿼리만 병렬 실행 (3개)
+  // 필수 쿼리만 병렬 실행 (집계 테이블 사용)
   const [monthlyResult, drugCountResult] = await Promise.all([
-    // 월별 매출
+    // 월별 매출 (집계 테이블 사용)
     pool.request()
       .input('hos_cd', sql.NVarChar, hos_cd)
       .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
       .input('startIndex', sql.Int, startIndex)
       .input('endIndex', sql.Int, endIndex)
       .query(`
-        SELECT sales_year, sales_month, sales_index, total_sales
-        FROM V_HOSPITAL_MONTHLY_SALES_byClaude
+        SELECT
+          ((sales_index + 1) / 12) + 2000 AS sales_year,
+          CASE WHEN (sales_index + 1) % 12 = 0 THEN 12 ELSE (sales_index + 1) % 12 END AS sales_month,
+          sales_index,
+          total_sales
+        FROM HOSPITAL_MONTHLY_SALES_AGG
         WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd
           AND sales_index BETWEEN @startIndex AND @endIndex
         ORDER BY sales_index
       `),
 
-    // 품목 수
+    // 품목 수 (유니크 품목 수 - 기존 뷰 유지)
     pool.request()
       .input('hos_cd', sql.NVarChar, hos_cd)
       .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
