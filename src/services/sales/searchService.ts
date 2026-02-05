@@ -56,7 +56,7 @@ export interface SearchResult {
 }
 
 /**
- * V_SEARCH_INDEX_byClaude 뷰로 통합 검색
+ * 통합 검색 (Full-Text Search 우선, Fallback으로 LIKE 검색)
  */
 export async function searchAll(keyword: string): Promise<SearchResult> {
   if (keyword.length < 2) {
@@ -71,23 +71,107 @@ export async function searchAll(keyword: string): Promise<SearchResult> {
     };
   }
 
-  const pool = await getConnection();
+  // 1차: Full-Text Search (3개 테이블 병렬 검색)
+  const [csos, hospitals, drugs] = await Promise.all([
+    searchCsoFullText(keyword),
+    searchHospitalFullText(keyword),
+    searchDrugFullText(keyword),
+  ]);
 
-  // V_SEARCH_INDEX_byClaude에서 검색
+  const totalCount = csos.length + hospitals.length + drugs.length;
+
+  // 2차: Full-Text 결과 없으면 LIKE fallback
+  if (totalCount === 0) {
+    return searchAllLikeFallback(keyword);
+  }
+
+  return {
+    csos,
+    hospitals,
+    drugs,
+    totalCount,
+    csoCount: csos.length,
+    hospitalCount: hospitals.length,
+    drugCount: drugs.length,
+  };
+}
+
+/**
+ * CSO Full-Text 검색
+ */
+async function searchCsoFullText(keyword: string): Promise<SearchIndexResult[]> {
+  const pool = await getConnection();
   const result = await pool
     .request()
-    .input('keyword', sql.NVarChar, `%${keyword}%`).query(`
+    .input('keyword', sql.NVarChar, `"*${keyword}*"`)
+    .query(`
+      SELECT 'CSO' AS entity_type, cso_cd AS entity_cd,
+             cso_dealer_nm AS search_name, NULL AS search_abbr, NULL AS region
+      FROM CSO_TBL
+      WHERE cso_is_valid = 'Y'
+        AND CONTAINS(cso_dealer_nm, @keyword)
+      ORDER BY cso_dealer_nm
+    `);
+  return result.recordset as SearchIndexResult[];
+}
+
+/**
+ * HOSPITAL Full-Text 검색
+ */
+async function searchHospitalFullText(keyword: string): Promise<SearchIndexResult[]> {
+  const pool = await getConnection();
+  const result = await pool
+    .request()
+    .input('keyword', sql.NVarChar, `"*${keyword}*"`)
+    .query(`
+      SELECT 'HOSPITAL' AS entity_type,
+             hos_cd + '|' + hos_cso_cd AS entity_cd,
+             hos_name AS search_name, hos_abbr AS search_abbr, hosIndex AS region
+      FROM HOSPITAL_TBL
+      WHERE CONTAINS((hos_name, hos_abbr, hosIndex), @keyword)
+      ORDER BY hos_name
+    `);
+  return result.recordset as SearchIndexResult[];
+}
+
+/**
+ * DRUG Full-Text 검색
+ */
+async function searchDrugFullText(keyword: string): Promise<SearchIndexResult[]> {
+  const pool = await getConnection();
+  const result = await pool
+    .request()
+    .input('keyword', sql.NVarChar, `"*${keyword}*"`)
+    .query(`
+      SELECT 'DRUG' AS entity_type, drug_cd AS entity_cd,
+             drug_name AS search_name, NULL AS search_abbr, NULL AS region
+      FROM DRUG_TBL
+      WHERE drug_isvalid = 'Y' AND end_index = 1199
+        AND CONTAINS(drug_name, @keyword)
+      ORDER BY drug_name
+    `);
+  return result.recordset as SearchIndexResult[];
+}
+
+/**
+ * LIKE Fallback 검색 (앞 와일드카드 제거)
+ */
+async function searchAllLikeFallback(keyword: string): Promise<SearchResult> {
+  const pool = await getConnection();
+
+  const result = await pool
+    .request()
+    .input('keyword', sql.NVarChar, `${keyword}%`)
+    .query(`
       SELECT entity_type, entity_cd, search_name, search_abbr, region
       FROM V_SEARCH_INDEX_byClaude
       WHERE search_name LIKE @keyword
-         OR region LIKE @keyword
          OR search_abbr LIKE @keyword
       ORDER BY entity_type, search_name
     `);
 
   const allResults = result.recordset as SearchIndexResult[];
 
-  // 카테고리별 분류
   const csos = allResults.filter((r) => r.entity_type === 'CSO');
   const hospitals = allResults.filter((r) => r.entity_type === 'HOSPITAL');
   const drugs = allResults.filter((r) => r.entity_type === 'DRUG');
