@@ -88,12 +88,16 @@ export async function handleDepth2(
 ): Promise<void> {
   switch (type) {
     case 'CSO': {
+      const tDb = Date.now();
       const result = await withDbRetry(userId, () => getCsoSales(code, period), 'CSO 조회');
+      logger.info(`[PERF] CSO DB조회: ${Date.now() - tDb}ms`);
       if (result) {
         // 중간 메시지: 데이터 조회 완료, 집계 중
         await sendTextMessage(userId, `매출 데이터 조회 완료, 집계 중...`);
         const carousel = createCsoCarousel(result);
+        const tFlex = Date.now();
         await sendFlexMessage(userId, carousel, `[${result.cso.cso_dealer_nm}] CSO 조회`);
+        logger.info(`[PERF] CSO Flex전송: ${Date.now() - tFlex}ms`);
       }
       break;
     }
@@ -102,32 +106,44 @@ export async function handleDepth2(
       const [hos_cd, hos_cso_cd] = code.split('|');
 
       // 모든 데이터 한번에 조회 (7개 쿼리 병렬 실행)
+      const tDb = Date.now();
       const result = await withDbRetry(userId, () => getHospitalSales(hos_cd, hos_cso_cd, period), '병원 조회');
+      logger.info(`[PERF] 병원DB조회: ${Date.now() - tDb}ms`);
       if (result) {
         const hospitalName = result.hospital.hos_abbr || result.hospital.hos_name;
 
         // 중간 메시지: 데이터 조회 완료, 집계 중
+        const tMsg1 = Date.now();
         await sendTextMessage(userId, `매출 데이터 조회 완료, 집계 중...`);
+        logger.info(`[PERF] 중간메시지전송: ${Date.now() - tMsg1}ms`);
 
         // 통합 캐러셀 생성 및 전송
+        const tCarousel = Date.now();
         const carousels = await createHospitalCarousel(result, {
           isSuperAdmin,
           userId,
         });
-        for (const carousel of carousels) {
-          await sendFlexMessage(userId, carousel, `[${hospitalName}] 병원 조회`);
+        logger.info(`[PERF] 캐러셀생성: ${Date.now() - tCarousel}ms (${carousels.length}개)`);
+        for (let i = 0; i < carousels.length; i++) {
+          const tFlex = Date.now();
+          await sendFlexMessage(userId, carousels[i], `[${hospitalName}] 병원 조회`);
+          logger.info(`[PERF] Flex전송[${i}]: ${Date.now() - tFlex}ms`);
         }
       }
       break;
     }
 
     case 'DRUG': {
+      const tDb = Date.now();
       const result = await withDbRetry(userId, () => getDrugSales(code, period), '품목 조회');
+      logger.info(`[PERF] DRUG DB조회: ${Date.now() - tDb}ms`);
       if (result) {
         // 중간 메시지: 데이터 조회 완료, 집계 중
         await sendTextMessage(userId, `매출 데이터 조회 완료, 집계 중...`);
         const carousel = createDrugCarousel(result, isAdmin);
+        const tFlex = Date.now();
         await sendFlexMessage(userId, carousel, `[${result.drug.drug_name}] 품목 조회`);
+        logger.info(`[PERF] DRUG Flex전송: ${Date.now() - tFlex}ms`);
       }
       break;
     }

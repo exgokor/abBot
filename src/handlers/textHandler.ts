@@ -3,9 +3,14 @@
  * Depth1: 검색 로직
  */
 
-import { TextMessageRequest } from './index';
-import { logger } from '../utils/logger';
-import { sendTextMessage, sendFlexMessage, createTextBubble, createButtonBubble } from '../services/naverworks/message';
+import { TextMessageRequest } from "./index";
+import { logger } from "../utils/logger";
+import {
+  sendTextMessage,
+  sendFlexMessage,
+  createTextBubble,
+  createButtonBubble,
+} from "../services/naverworks/message";
 import {
   searchAll,
   getTotalCount,
@@ -13,30 +18,32 @@ import {
   isTooManyResults,
   getSingleEntity,
   createSearchResultCarousel,
-} from '../services/sales/searchService';
-import { getCurrentPeriod } from '../services/sales/periodService';
-import { withDbRetry } from '../utils/dbErrorHandler';
-import { handleDepth2 } from './postbackHandler';
-import { getUserPermission, UserRole } from '../middleware/permission';
+} from "../services/sales/searchService";
+import { getCurrentPeriod } from "../services/sales/periodService";
+import { withDbRetry } from "../utils/dbErrorHandler";
+import { handleDepth2 } from "./postbackHandler";
+import { getUserPermission, UserRole } from "../middleware/permission";
 
 /**
  * 텍스트 메시지 처리
  */
-export async function handleTextMessage(request: TextMessageRequest): Promise<void> {
+export async function handleTextMessage(
+  request: TextMessageRequest,
+): Promise<void> {
   const userId = request.source.userId;
   const text = request.content.text.trim();
 
   logger.info(`Text message from ${userId}: ${text}`);
 
   // 환영 메시지 (시작하기, ? 입력 시)
-  const welcomeKeywords = ['시작하기', '?'];
+  const welcomeKeywords = ["시작하기", "?"];
   if (welcomeKeywords.includes(text)) {
     await sendWelcomeMessage(userId);
     return;
   }
 
   // 명령어 처리 (/, ! 로 시작하는 경우)
-  if (text.startsWith('/') || text.startsWith('!')) {
+  if (text.startsWith("/") || text.startsWith("!")) {
     await handleCommand(userId, text);
     return;
   }
@@ -49,29 +56,32 @@ export async function handleTextMessage(request: TextMessageRequest): Promise<vo
  * 명령어 처리
  */
 async function handleCommand(userId: string, text: string): Promise<void> {
-  const command = text.slice(1).toLowerCase().split(' ')[0];
-  const args = text.slice(1).split(' ').slice(1).join(' ');
+  const command = text.slice(1).toLowerCase().split(" ")[0];
+  const args = text.slice(1).split(" ").slice(1).join(" ");
 
   logger.info(`Command: ${command}, Args: ${args}`);
 
   switch (command) {
-    case 'help':
-    case '도움말':
+    case "help":
+    case "도움말":
       await sendHelpMessage(userId);
       break;
 
-    case 'menu':
-    case '메뉴':
+    case "menu":
+    case "메뉴":
       await sendMenuMessage(userId);
       break;
 
-    case 'myinfo':
-    case '내정보':
+    case "myinfo":
+    case "내정보":
       await handleMyInfo(userId);
       break;
 
     default:
-      await sendTextMessage(userId, `알 수 없는 명령어입니다: ${command}\n/help 를 입력하여 사용 가능한 명령어를 확인하세요.`);
+      await sendTextMessage(
+        userId,
+        `알 수 없는 명령어입니다: ${command}\n/help 를 입력하여 사용 가능한 명령어를 확인하세요.`,
+      );
   }
 }
 
@@ -82,25 +92,33 @@ async function handleCommand(userId: string, text: string): Promise<void> {
  * - 결과 2~20개: 카테고리별 캐러셀 표시
  * - 결과 21개+: 더 정확한 검색어 요청
  */
-async function handleDepth1Search(userId: string, keyword: string): Promise<void> {
+async function handleDepth1Search(
+  userId: string,
+  keyword: string,
+): Promise<void> {
+  const t0 = Date.now();
+
   // 즉시 안내 메시지 전송
-  await sendTextMessage(userId, `[ ${keyword} ] 검색 중...`);
+  sendTextMessage(userId, `[ ${keyword} ] 검색 중...`);
 
   // 기간 정보 조회
   const period = await withDbRetry(
     userId,
     () => getCurrentPeriod(3),
-    '기간 조회'
+    "기간 조회",
   );
+  logger.info(`[PERF] 기간조회: ${Date.now() - t0}ms`);
 
   if (!period) return;
 
   // 통합 검색 실행
+  const t1 = Date.now();
   const searchResult = await withDbRetry(
     userId,
     () => searchAll(keyword),
-    '검색'
+    "검색",
   );
+  logger.info(`[PERF] 검색: ${Date.now() - t1}ms`);
 
   if (!searchResult) return;
 
@@ -108,7 +126,10 @@ async function handleDepth1Search(userId: string, keyword: string): Promise<void
 
   // Case 1: 결과 없음
   if (totalCount === 0) {
-    await sendTextMessage(userId, `"${keyword}" 검색 결과가 없습니다.\n다른 검색어를 입력해주세요.`);
+    await sendTextMessage(
+      userId,
+      `"${keyword}" 검색 결과가 없습니다.\n다른 검색어를 입력해주세요.`,
+    );
     return;
   }
 
@@ -116,7 +137,7 @@ async function handleDepth1Search(userId: string, keyword: string): Promise<void
   if (isTooManyResults(searchResult)) {
     await sendTextMessage(
       userId,
-      `"${keyword}" 검색 결과가 ${totalCount}건으로 너무 많습니다.\n검색어를 더 정확하게 입력해주세요.`
+      `"${keyword}" 검색 결과가 ${totalCount}건으로 너무 많습니다.\n검색어를 더 정확하게 입력해주세요.`,
     );
     return;
   }
@@ -125,21 +146,41 @@ async function handleDepth1Search(userId: string, keyword: string): Promise<void
   if (isSingleResult(searchResult)) {
     const entity = getSingleEntity(searchResult);
     if (entity) {
-      await sendTextMessage(userId, `"${entity.search_name}" 매출 데이터를 집계하고 있습니다...`);
+      await sendTextMessage(
+        userId,
+        `"${entity.search_name}" 매출 데이터를 집계하고 있습니다...`,
+      );
 
       // 권한 조회 (DRUG: 관리자용 수수료율, HOSPITAL: 블록 수정 버튼)
+      const t2 = Date.now();
       const permission = await getUserPermission(userId);
-      const isAdmin = permission?.role === UserRole.ADMIN || permission?.role === UserRole.SUPER_ADMIN;
+      logger.info(`[PERF] 권한조회: ${Date.now() - t2}ms`);
+      const isAdmin =
+        permission?.role === UserRole.ADMIN ||
+        permission?.role === UserRole.SUPER_ADMIN;
       const isSuperAdmin = permission?.role === UserRole.SUPER_ADMIN;
 
       // Depth2 직접 호출
-      await handleDepth2(userId, entity.entity_type, entity.entity_cd, period, isAdmin, isSuperAdmin);
+      const t3 = Date.now();
+      await handleDepth2(
+        userId,
+        entity.entity_type,
+        entity.entity_cd,
+        period,
+        isAdmin,
+        isSuperAdmin,
+      );
+      logger.info(`[PERF] Depth2전체: ${Date.now() - t3}ms`);
       return;
     }
   }
 
   // Case 4: 복수 결과 (2~20개) → 캐러셀 표시
-  const carousel = createSearchResultCarousel(keyword, searchResult, period.periodText);
+  const carousel = createSearchResultCarousel(
+    keyword,
+    searchResult,
+    period.periodText,
+  );
   await sendFlexMessage(userId, carousel, `[${keyword}] 검색 완료`);
 
   logger.info(`Search carousel sent for "${keyword}" (${totalCount} results)`);
@@ -185,15 +226,12 @@ async function sendHelpMessage(userId: string): Promise<void> {
  * 메뉴 버튼
  */
 async function sendMenuMessage(userId: string): Promise<void> {
-  const flexMessage = createButtonBubble(
-    '메뉴를 선택하세요',
-    [
-      { label: '내 정보', text: '/myinfo' },
-      { label: '도움말', text: '/help' },
-    ]
-  );
+  const flexMessage = createButtonBubble("메뉴를 선택하세요", [
+    { label: "내 정보", text: "/myinfo" },
+    { label: "도움말", text: "/help" },
+  ]);
 
-  await sendFlexMessage(userId, flexMessage, '메뉴');
+  await sendFlexMessage(userId, flexMessage, "메뉴");
 }
 
 /**
@@ -201,9 +239,9 @@ async function sendMenuMessage(userId: string): Promise<void> {
  */
 async function handleMyInfo(userId: string): Promise<void> {
   const flexMessage = createTextBubble(
-    '내 정보',
-    `사용자 ID: ${userId}\n\n상세 정보는 준비 중입니다.`
+    "내 정보",
+    `사용자 ID: ${userId}\n\n상세 정보는 준비 중입니다.`,
   );
 
-  await sendFlexMessage(userId, flexMessage, '내 정보');
+  await sendFlexMessage(userId, flexMessage, "내 정보");
 }

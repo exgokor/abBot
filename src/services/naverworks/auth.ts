@@ -9,6 +9,9 @@ const ADMIN_NOTIFY_USER_ID = '73524122-e756-4c53-179e-0378b4ad90b5';
 
 const TOKEN_URL = 'https://auth.worksmobile.com/oauth2/v2.0/token';
 
+// 메모리 토큰 캐시 (매번 DB 조회 방지)
+let cachedAccessToken: string | null = null;
+
 interface TokenResponse {
   access_token: string;
   refresh_token: string;
@@ -18,14 +21,21 @@ interface TokenResponse {
 
 /**
  * Access Token 발급
- * - 먼저 저장된 ACCESS_TOKEN 반환 시도
- * - 없거나 만료시 refresh_token으로 갱신
+ * - 메모리 캐시 우선
+ * - 없으면 DB 조회
+ * - DB에도 없으면 refresh_token으로 갱신
  */
 export async function getAccessToken(): Promise<string> {
-  // 먼저 저장된 토큰 시도
+  // 1. 메모리 캐시
+  if (cachedAccessToken) {
+    return cachedAccessToken;
+  }
+
+  // 2. DB에서 조회
   try {
     const storedToken = await getEncryptedValue('ACCESS_TOKEN');
     if (storedToken) {
+      cachedAccessToken = storedToken;
       return storedToken;
     }
   } catch {
@@ -73,9 +83,10 @@ export async function refreshAccessToken(): Promise<string> {
 
   const { access_token, refresh_token } = response;
 
-  // 새 토큰들을 DB에 저장
+  // 새 토큰들을 DB에 저장 + 메모리 캐시 업데이트
   await setEncryptedValue('ACCESS_TOKEN', access_token);
   await setEncryptedValue('REFRESH_TOKEN', refresh_token);
+  cachedAccessToken = access_token;
 
   logger.info('Access token refreshed and saved to DB');
   return access_token;

@@ -153,7 +153,7 @@ export async function getHospitalSales(
     drugCountResult,
     csoCountResult
   ] = await Promise.all([
-    // 월별 매출 (집계 테이블 사용)
+    // 월별 매출
     pool.request()
       .input('hos_cd', sql.NVarChar, hos_cd)
       .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
