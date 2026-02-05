@@ -273,7 +273,7 @@ LEFT JOIN DRUG_TBL d ON b.drug_cd = d.drug_cd AND d.end_index = 1199
     sql: `
 CREATE VIEW V_SEARCH_INDEX_byClaude AS
 -- CSO 검색
-SELECT 'CSO' AS entity_type, cso_cd AS entity_cd, cso_dealer_nm AS search_name, NULL AS search_abbr, NULL AS region
+SELECT 'CSO' AS entity_type, cso_cd AS entity_cd, cso_dealer_nm AS search_name, cso_corp_nm AS search_abbr, NULL AS region
 FROM CSO_TBL WHERE cso_is_valid = 'Y'
 UNION ALL
 -- 병원 검색

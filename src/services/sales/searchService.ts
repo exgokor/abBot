@@ -337,6 +337,10 @@ function createCategoryBubble(
  * 버튼 라벨 생성
  */
 function getButtonLabel(item: SearchIndexResult, categoryItemCount: number): string {
+  // CSO는 search_abbr(협력사명) 표시
+  if (item.entity_type === 'CSO' && item.search_abbr) {
+    return item.search_abbr;
+  }
   // DRUG이고 2개 이상이면 search_name 사용 (용량 구분을 위해)
   if (item.entity_type === 'DRUG' && categoryItemCount >= 2) {
     return item.search_name;
