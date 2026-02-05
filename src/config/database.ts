@@ -14,7 +14,7 @@ export const sqlConfig = {
   requestTimeout: 30000,     // 쿼리 타임아웃 30초
   pool: {
     max: 10,
-    min: 2,  // 최소 2개 연결 유지 (콜드스타트 방지)
-    idleTimeoutMillis: 100000,  // 100초 유휴 타임아웃
+    min: 8,  // 최소 8개 연결 유지 (7개 병렬 쿼리 대비)
+    idleTimeoutMillis: 300000,  // 5분 유휴 타임아웃 (연결 재생성 방지)
   },
 };
