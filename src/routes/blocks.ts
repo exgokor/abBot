@@ -12,6 +12,7 @@ import { sendTextMessage } from '../services/naverworks/message';
 import { config } from '../config';
 import sql from 'mssql';
 import { logger } from '../utils/logger';
+import { yearMonthToIndex } from '../services/sales/periodService';
 
 const router = Router();
 
@@ -187,8 +188,8 @@ router.post('/api/blocks', async (req: Request, res: Response) => {
     const newSeq = seqResult.recordset[0].new_seq.toString();
 
     // index 계산
-    const start_index = start_year * 12 + start_month - 1;
-    const end_index = end_year * 12 + end_month - 1;
+    const start_index = yearMonthToIndex(start_year, start_month);
+    const end_index = yearMonthToIndex(end_year, end_month);
 
     // 블록 추가
     await pool.request()
@@ -240,11 +241,11 @@ router.post('/api/blocks/batch', async (req: Request, res: Response) => {
 
     // 진료과 변경 처리
     for (const change of diseases || []) {
-      const [drug_cd, seq] = change.blockKey.split('|');
+      const [drug_cd, seq, cso_cd] = change.blockKey.split('|');
 
       // index 계산
-      const start_index = change.start_year * 12 + change.start_month - 1;
-      const end_index = change.end_year * 12 + change.end_month - 1;
+      const start_index = yearMonthToIndex(change.start_year, change.start_month);
+      const end_index = yearMonthToIndex(change.end_year, change.end_month);
 
       if (change.action === 'add') {
         // 진료과 추가
@@ -253,6 +254,7 @@ router.post('/api/blocks/batch', async (req: Request, res: Response) => {
           .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
           .input('drug_cd', sql.NVarChar, drug_cd)
           .input('seq', sql.NVarChar, seq)
+          .input('cso_cd', sql.NVarChar, cso_cd)
           .input('disease_type', sql.NVarChar, change.disease_type)
           .input('start_year', sql.Int, change.start_year)
           .input('start_month', sql.Int, change.start_month)
@@ -265,10 +267,10 @@ router.post('/api/blocks/batch', async (req: Request, res: Response) => {
             INSERT INTO BLOCK_TBL (hos_cd, hos_cso_cd, drug_cd, seq, cso_cd, disease_type, start_year, start_month, start_index, end_year, end_month, end_index, block_isvalid, isFirst, update_at)
             SELECT @hos_cd, @hos_cso_cd, @drug_cd, @seq, cso_cd, @disease_type, @start_year, @start_month, @start_index, @end_year, @end_month, @end_index, @block_isvalid, isFirst, DATEADD(HOUR, 9, GETUTCDATE())
             FROM BLOCK_TBL
-            WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd AND drug_cd = @drug_cd AND seq = @seq
+            WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd AND drug_cd = @drug_cd AND seq = @seq AND cso_cd = @cso_cd
             AND NOT EXISTS (
               SELECT 1 FROM BLOCK_TBL
-              WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd AND drug_cd = @drug_cd AND seq = @seq AND disease_type = @disease_type
+              WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd AND drug_cd = @drug_cd AND seq = @seq AND cso_cd = @cso_cd AND disease_type = @disease_type
             )
           `);
       } else if (change.action === 'edit' || change.action === 'end') {
@@ -278,6 +280,7 @@ router.post('/api/blocks/batch', async (req: Request, res: Response) => {
           .input('hos_cso_cd', sql.NVarChar, hos_cso_cd)
           .input('drug_cd', sql.NVarChar, drug_cd)
           .input('seq', sql.NVarChar, seq)
+          .input('cso_cd', sql.NVarChar, cso_cd)
           .input('disease_type', sql.NVarChar, change.disease_type)
           .input('start_year', sql.Int, change.start_year)
           .input('start_month', sql.Int, change.start_month)
@@ -290,7 +293,7 @@ router.post('/api/blocks/batch', async (req: Request, res: Response) => {
             SET start_year = @start_year, start_month = @start_month, start_index = @start_index,
                 end_year = @end_year, end_month = @end_month, end_index = @end_index,
                 update_at = DATEADD(HOUR, 9, GETUTCDATE())
-            WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd AND drug_cd = @drug_cd AND seq = @seq AND disease_type = @disease_type
+            WHERE hos_cd = @hos_cd AND hos_cso_cd = @hos_cso_cd AND drug_cd = @drug_cd AND seq = @seq AND cso_cd = @cso_cd AND disease_type = @disease_type
           `);
       }
     }
