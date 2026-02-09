@@ -12,6 +12,7 @@ import {
   createHospitalPostback,
   createDrugPostback,
 } from '../../types/postback';
+import { UserAllowedEntities } from '../../middleware/permission';
 
 // 색상 팔레트
 const COLORS = {
@@ -57,8 +58,10 @@ export interface SearchResult {
 
 /**
  * 통합 검색 (LIKE prefix 검색 - 인덱스 활용)
+ * @param keyword 검색어
+ * @param allowedEntities USER일 경우 허용 엔티티 (CSO/병원 필터링), 없으면 전체 조회
  */
-export async function searchAll(keyword: string): Promise<SearchResult> {
+export async function searchAll(keyword: string, allowedEntities?: UserAllowedEntities): Promise<SearchResult> {
   if (keyword.length < 2) {
     return {
       csos: [],
@@ -87,9 +90,17 @@ export async function searchAll(keyword: string): Promise<SearchResult> {
 
   const allResults = result.recordset as SearchIndexResult[];
 
-  const csos = allResults.filter((r) => r.entity_type === 'CSO');
-  const hospitals = allResults.filter((r) => r.entity_type === 'HOSPITAL');
+  let csos = allResults.filter((r) => r.entity_type === 'CSO');
+  let hospitals = allResults.filter((r) => r.entity_type === 'HOSPITAL');
   const drugs = allResults.filter((r) => r.entity_type === 'DRUG');
+
+  // USER 권한 필터링: CSO와 병원만 제한, 품목은 자유
+  if (allowedEntities) {
+    const csoSet = new Set(allowedEntities.csoCodes);
+    const hospitalSet = new Set(allowedEntities.hospitalKeys);
+    csos = csos.filter((r) => csoSet.has(r.entity_cd));
+    hospitals = hospitals.filter((r) => hospitalSet.has(r.entity_cd));
+  }
 
   return {
     csos,

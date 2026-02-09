@@ -19,7 +19,7 @@ import {
 import { decodePostback, PostbackData, parseDepth3Code, Depth3EntityType } from '../types/postback';
 import { getCurrentPeriod } from '../services/sales/periodService';
 import { withDbRetry } from '../utils/dbErrorHandler';
-import { getUserPermission, UserRole } from '../middleware/permission';
+import { getUserPermission, getUserAllowedEntities, UserRole } from '../middleware/permission';
 
 /**
  * Postback 메시지 처리
@@ -57,13 +57,54 @@ async function handleNewFormatPostback(userId: string, postback: PostbackData): 
 
   const period = await getCurrentPeriod(3);
 
-  // 권한 조회 (DRUG 타입일 때 관리자 수수료율 표시 여부 결정)
+  // 권한 조회
   const permission = await getUserPermission(userId);
   const isAdmin = permission?.role === UserRole.ADMIN || permission?.role === UserRole.SUPER_ADMIN;
   const isSuperAdmin = permission?.role === UserRole.SUPER_ADMIN;
+  const isUser = permission?.role === UserRole.USER;
+
+  // USER일 경우 접근 제어를 위해 허용 엔티티 조회
+  let userCsoCodes: string[] | undefined;
+  if (isUser) {
+    const entities = await getUserAllowedEntities(userId);
+    if (entities) {
+      userCsoCodes = entities.csoCodes;
+
+      // CSO/HOSPITAL 접근 제어
+      if (depth === 2) {
+        if (type === 'CSO' && !entities.csoCodes.includes(code)) {
+          await sendTextMessage(userId, '조회 권한이 없습니다.');
+          return;
+        }
+        if (type === 'HOSPITAL' && !entities.hospitalKeys.includes(code)) {
+          await sendTextMessage(userId, '조회 권한이 없습니다.');
+          return;
+        }
+      } else if (depth === 3) {
+        // Depth3: 타입에 CSO나 HOSPITAL이 포함되면 접근 제어
+        const parsed = parseDepth3Code(type as Depth3EntityType, code);
+        if (type.includes('CSO')) {
+          const csoCd = type.startsWith('CSO') ? parsed.first : parsed.second;
+          if (!entities.csoCodes.includes(csoCd)) {
+            await sendTextMessage(userId, '조회 권한이 없습니다.');
+            return;
+          }
+        }
+        if (type.includes('HOSPITAL')) {
+          const hosKey = type.startsWith('HOSPITAL')
+            ? `${parsed.firstHosCd}|${parsed.firstHosCsoCd}`
+            : `${parsed.secondHosCd}|${parsed.secondHosCsoCd}`;
+          if (!entities.hospitalKeys.includes(hosKey)) {
+            await sendTextMessage(userId, '조회 권한이 없습니다.');
+            return;
+          }
+        }
+      }
+    }
+  }
 
   if (depth === 2) {
-    await handleDepth2(userId, type, code, period, isAdmin, isSuperAdmin);
+    await handleDepth2(userId, type, code, period, isAdmin, isSuperAdmin, userCsoCodes);
   } else if (depth === 3) {
     await handleDepth3(userId, type, code, period);
   } else {
@@ -77,6 +118,7 @@ async function handleNewFormatPostback(userId: string, postback: PostbackData): 
  * @export textHandler에서 단일 검색결과 시 직접 호출
  * @param isAdmin 관리자 여부 (DRUG 조회 시 관리자용 수수료율 표시)
  * @param isSuperAdmin SUPER_ADMIN 여부 (HOSPITAL 조회 시 블록 수정 버튼 표시)
+ * @param userCsoCodes USER일 경우 본인 CSO 코드 목록 (DRUG 조회 시 필터링용)
  */
 export async function handleDepth2(
   userId: string,
@@ -84,7 +126,8 @@ export async function handleDepth2(
   code: string,
   period: any,
   isAdmin: boolean = false,
-  isSuperAdmin: boolean = false
+  isSuperAdmin: boolean = false,
+  userCsoCodes?: string[]
 ): Promise<void> {
   switch (type) {
     case 'CSO': {
@@ -135,7 +178,7 @@ export async function handleDepth2(
 
     case 'DRUG': {
       const tDb = Date.now();
-      const result = await withDbRetry(userId, () => getDrugSales(code, period), '품목 조회');
+      const result = await withDbRetry(userId, () => getDrugSales(code, period, userCsoCodes), '품목 조회');
       logger.info(`[PERF] DRUG DB조회: ${Date.now() - tDb}ms`);
       if (result) {
         // 중간 메시지: 데이터 조회 완료, 집계 중
@@ -284,20 +327,38 @@ async function handleLegacyPostback(userId: string, data: any): Promise<void> {
   if (action === 'search_select') {
     const period = await getCurrentPeriod(3);
 
-    // 권한 조회 (drug, hospital 타입에서 필요)
+    // 권한 조회
     const permission = await getUserPermission(userId);
     const isAdmin = permission?.role === UserRole.ADMIN || permission?.role === UserRole.SUPER_ADMIN;
     const isSuperAdmin = permission?.role === UserRole.SUPER_ADMIN;
+    const isUser = permission?.role === UserRole.USER;
+
+    // USER일 경우 접근 제어
+    let userCsoCodes: string[] | undefined;
+    if (isUser) {
+      const entities = await getUserAllowedEntities(userId);
+      if (entities) {
+        userCsoCodes = entities.csoCodes;
+        if (type === 'cso' && !entities.csoCodes.includes(value)) {
+          await sendTextMessage(userId, '조회 권한이 없습니다.');
+          return;
+        }
+        if (type === 'hospital' && !entities.hospitalKeys.includes(value)) {
+          await sendTextMessage(userId, '조회 권한이 없습니다.');
+          return;
+        }
+      }
+    }
 
     switch (type) {
       case 'cso':
-        await handleDepth2(userId, 'CSO', value, period);
+        await handleDepth2(userId, 'CSO', value, period, false, false, userCsoCodes);
         break;
       case 'hospital':
-        await handleDepth2(userId, 'HOSPITAL', value, period, false, isSuperAdmin);
+        await handleDepth2(userId, 'HOSPITAL', value, period, false, isSuperAdmin, userCsoCodes);
         break;
       case 'drug':
-        await handleDepth2(userId, 'DRUG', value, period, isAdmin);
+        await handleDepth2(userId, 'DRUG', value, period, isAdmin, false, userCsoCodes);
         break;
       default:
         await sendTextMessage(userId, `알 수 없는 검색 타입: ${type}`);

@@ -22,7 +22,7 @@ import {
 import { getCurrentPeriod } from "../services/sales/periodService";
 import { withDbRetry } from "../utils/dbErrorHandler";
 import { handleDepth2 } from "./postbackHandler";
-import { getUserPermission, UserRole } from "../middleware/permission";
+import { getUserPermission, getUserAllowedEntities, UserRole } from "../middleware/permission";
 
 /**
  * 텍스트 메시지 처리
@@ -101,14 +101,30 @@ async function handleDepth1Search(
   // 즉시 안내 메시지 전송 (await 없이 fire-and-forget)
   sendTextMessage(userId, `[ ${keyword} ] 검색 중...`);
 
-  // 기간 조회 + 검색을 병렬 실행
-  const [period, searchResult] = await Promise.all([
+  // 권한 조회를 검색과 병렬 실행
+  const [period, permission] = await Promise.all([
     withDbRetry(userId, () => getCurrentPeriod(3), "기간 조회"),
-    withDbRetry(userId, () => searchAll(keyword), "검색"),
+    getUserPermission(userId),
   ]);
-  logger.info(`[PERF] 기간+검색 병렬: ${Date.now() - t0}ms`);
 
-  if (!period || !searchResult) return;
+  if (!period) return;
+
+  const isAdmin =
+    permission?.role === UserRole.ADMIN ||
+    permission?.role === UserRole.SUPER_ADMIN;
+  const isSuperAdmin = permission?.role === UserRole.SUPER_ADMIN;
+  const isUser = permission?.role === UserRole.USER;
+
+  // USER일 경우 허용 엔티티 조회 후 필터링된 검색 실행
+  const allowedEntities = isUser ? await getUserAllowedEntities(userId) : undefined;
+  const searchResult = await withDbRetry(
+    userId,
+    () => searchAll(keyword, allowedEntities || undefined),
+    "검색",
+  );
+  logger.info(`[PERF] 기간+권한+검색: ${Date.now() - t0}ms`);
+
+  if (!searchResult) return;
 
   const totalCount = getTotalCount(searchResult);
 
@@ -139,16 +155,7 @@ async function handleDepth1Search(
         `"${entity.search_name}" 매출 데이터를 집계하고 있습니다...`,
       );
 
-      // 권한 조회 (DRUG: 관리자용 수수료율, HOSPITAL: 블록 수정 버튼)
-      const t2 = Date.now();
-      const permission = await getUserPermission(userId);
-      logger.info(`[PERF] 권한조회: ${Date.now() - t2}ms`);
-      const isAdmin =
-        permission?.role === UserRole.ADMIN ||
-        permission?.role === UserRole.SUPER_ADMIN;
-      const isSuperAdmin = permission?.role === UserRole.SUPER_ADMIN;
-
-      // Depth2 직접 호출
+      // Depth2 직접 호출 (USER일 경우 CSO 코드 전달)
       const t3 = Date.now();
       await handleDepth2(
         userId,
@@ -157,6 +164,7 @@ async function handleDepth1Search(
         period,
         isAdmin,
         isSuperAdmin,
+        isUser ? allowedEntities?.csoCodes : undefined,
       );
       logger.info(`[PERF] Depth2전체: ${Date.now() - t3}ms`);
       return;

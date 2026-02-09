@@ -13,8 +13,15 @@ export interface UserPermission {
   role: UserRole;
 }
 
+export interface UserAllowedEntities {
+  csoCodes: string[];       // 유저 소속 CSO 코드 목록
+  hospitalKeys: string[];   // 담당 병원 키 목록 (hos_cd|hos_cso_cd)
+}
+
 // 권한 캐시 (userId -> { permission, expiresAt })
 const permissionCache = new Map<string, { permission: UserPermission; expiresAt: number }>();
+// 허용 엔티티 캐시 (userId -> { entities, expiresAt })
+const entitiesCache = new Map<string, { entities: UserAllowedEntities; expiresAt: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5분
 
 export async function getUserPermission(userId: string): Promise<UserPermission | null> {
@@ -43,6 +50,61 @@ export async function getUserPermission(userId: string): Promise<UserPermission 
     return permission;
   } catch (error) {
     logger.error(`Failed to get user permission for ${userId}`, error);
+    return null;
+  }
+}
+
+/**
+ * 일반유저(USER)의 허용 엔티티 조회
+ * NaverWorks_UserInfo_TBL → CSO_TBL (email 조인) → BLOCK_TBL (담당 병원)
+ */
+export async function getUserAllowedEntities(userId: string): Promise<UserAllowedEntities | null> {
+  // 캐시 확인
+  const cached = entitiesCache.get(userId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.entities;
+  }
+
+  try {
+    // 1. 유저의 CSO 코드 목록 조회
+    const csoCodes = await executeQuery<{ cso_cd: string }>(
+      `SELECT c.cso_cd
+       FROM NaverWorks_UserInfo_TBL u
+       JOIN CSO_TBL c ON c.cso_email = u.email
+       WHERE u.userId = @userId AND c.cso_is_valid = 'Y'`,
+      { userId }
+    );
+
+    const csoCodeList = csoCodes.map(r => r.cso_cd);
+
+    // CSO가 없으면 빈 결과 반환
+    if (csoCodeList.length === 0) {
+      const entities: UserAllowedEntities = { csoCodes: [], hospitalKeys: [] };
+      entitiesCache.set(userId, { entities, expiresAt: Date.now() + CACHE_TTL_MS });
+      return entities;
+    }
+
+    // 2. 해당 CSO들의 담당 병원 키 목록 조회 (BLOCK_TBL)
+    const csoPlaceholders = csoCodeList.map((_, i) => `@cso${i}`).join(', ');
+    const params: Record<string, unknown> = { userId };
+    csoCodeList.forEach((code, i) => { params[`cso${i}`] = code; });
+
+    const hospitals = await executeQuery<{ hospital_key: string }>(
+      `SELECT DISTINCT hos_cd + '|' + hos_cso_cd AS hospital_key
+       FROM BLOCK_TBL
+       WHERE cso_cd IN (${csoPlaceholders}) AND block_isvalid = 'Y'`,
+      params
+    );
+
+    const entities: UserAllowedEntities = {
+      csoCodes: csoCodeList,
+      hospitalKeys: hospitals.map(r => r.hospital_key),
+    };
+
+    entitiesCache.set(userId, { entities, expiresAt: Date.now() + CACHE_TTL_MS });
+    return entities;
+  } catch (error) {
+    logger.error(`Failed to get allowed entities for ${userId}`, error);
     return null;
   }
 }

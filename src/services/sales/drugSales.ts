@@ -70,8 +70,9 @@ export interface DrugSalesResult {
  * 품목 상세 매출 조회 (V2)
  * @param drug_cd 품목 코드
  * @param period 기간 정보 (선택적)
+ * @param userCsoCodes USER일 경우 본인 CSO 코드 목록 (필터링용)
  */
-export async function getDrugSales(drug_cd: string, period?: PeriodInfo): Promise<DrugSalesResult | null> {
+export async function getDrugSales(drug_cd: string, period?: PeriodInfo, userCsoCodes?: string[]): Promise<DrugSalesResult | null> {
   const pool = await getConnection();
 
   // 품목 기본 정보 조회
@@ -93,6 +94,33 @@ export async function getDrugSales(drug_cd: string, period?: PeriodInfo): Promis
   const periodInfo = period || await getCurrentPeriod(3);
   const { startIndex, endIndex, periodText, periodMonths } = periodInfo;
 
+  // USER CSO 필터 조건 (일반유저일 경우 본인 CSO 기준으로만 조회)
+  const csoFilter = userCsoCodes && userCsoCodes.length > 0
+    ? `AND s.cso_cd_then IN (${userCsoCodes.map((_, i) => `@cso${i}`).join(', ')})`
+    : '';
+  const csoFilterSub = userCsoCodes && userCsoCodes.length > 0
+    ? `AND cso_cd_then IN (${userCsoCodes.map((_, i) => `@cso${i}`).join(', ')})`
+    : '';
+
+  // CSO 파라미터를 request에 추가하는 헬퍼
+  const addCsoParams = (request: sql.Request) => {
+    if (userCsoCodes) {
+      userCsoCodes.forEach((code, i) => {
+        request.input(`cso${i}`, sql.NVarChar, code);
+      });
+    }
+    return request;
+  };
+
+  // 공통 파라미터를 세팅하는 헬퍼
+  const createRequest = () => {
+    const req = pool.request()
+      .input('drug_cd', sql.NVarChar, drug_cd)
+      .input('startIndex', sql.Int, startIndex)
+      .input('endIndex', sql.Int, endIndex);
+    return addCsoParams(req);
+  };
+
   // 병렬 쿼리 실행 (의약품 상세 정보 포함)
   const [
     monthlyResult,
@@ -104,24 +132,32 @@ export async function getDrugSales(drug_cd: string, period?: PeriodInfo): Promis
     csoCountResult,
     drugDetailInfo
   ] = await Promise.all([
-    // 월별 매출
-    pool.request()
-      .input('drug_cd', sql.NVarChar, drug_cd)
-      .input('startIndex', sql.Int, startIndex)
-      .input('endIndex', sql.Int, endIndex)
-      .query(`
-        SELECT sales_year, sales_month, sales_index, total_sales
-        FROM V_DRUG_MONTHLY_SALES_byClaude
-        WHERE drug_cd = @drug_cd
-          AND sales_index BETWEEN @startIndex AND @endIndex
-        ORDER BY sales_index
-      `),
+    // 월별 매출 (CSO 필터 있으면 SALES_TBL 직접 조회)
+    userCsoCodes
+      ? createRequest().query(`
+          SELECT sales_year, sales_month, sales_index,
+            SUM(drug_cnt * drug_price) AS total_sales
+          FROM SALES_TBL s
+          WHERE s.drug_cd = @drug_cd
+            AND s.sales_index BETWEEN @startIndex AND @endIndex
+            ${csoFilter}
+          GROUP BY sales_year, sales_month, sales_index
+          ORDER BY sales_index
+        `)
+      : pool.request()
+          .input('drug_cd', sql.NVarChar, drug_cd)
+          .input('startIndex', sql.Int, startIndex)
+          .input('endIndex', sql.Int, endIndex)
+          .query(`
+            SELECT sales_year, sales_month, sales_index, total_sales
+            FROM V_DRUG_MONTHLY_SALES_byClaude
+            WHERE drug_cd = @drug_cd
+              AND sales_index BETWEEN @startIndex AND @endIndex
+            ORDER BY sales_index
+          `),
 
     // TOP 병원 (최대 20개) - SALES_TBL 직접 조회
-    pool.request()
-      .input('drug_cd', sql.NVarChar, drug_cd)
-      .input('startIndex', sql.Int, startIndex)
-      .input('endIndex', sql.Int, endIndex)
+    createRequest()
       .input('limit', sql.Int, MAX_HOSPITALS)
       .query(`
         SELECT TOP (@limit)
@@ -132,26 +168,26 @@ export async function getDrugSales(drug_cd: string, period?: PeriodInfo): Promis
         JOIN HOSPITAL_TBL h ON s.hos_cd = h.hos_cd AND s.hos_cso_cd = h.hos_cso_cd
         WHERE s.drug_cd = @drug_cd
           AND s.sales_index BETWEEN @startIndex AND @endIndex
+          ${csoFilter}
         GROUP BY s.hos_cd, s.hos_cso_cd, h.hos_name, h.hos_abbr
         ORDER BY SUM(s.drug_cnt * s.drug_price) DESC
       `),
 
     // TOP 병원별 월별 매출 - SALES_TBL 직접 조회
-    pool.request()
-      .input('drug_cd', sql.NVarChar, drug_cd)
-      .input('startIndex', sql.Int, startIndex)
-      .input('endIndex', sql.Int, endIndex)
+    createRequest()
       .input('limit', sql.Int, MAX_HOSPITALS)
       .query(`
         SELECT s.hos_cd, s.hos_cso_cd, s.sales_index, SUM(s.drug_cnt * s.drug_price) AS total_sales
         FROM SALES_TBL s
         WHERE s.drug_cd = @drug_cd
           AND s.sales_index BETWEEN @startIndex AND @endIndex
+          ${csoFilter}
           AND s.hos_cd + '|' + s.hos_cso_cd IN (
             SELECT TOP (@limit) hos_cd + '|' + hos_cso_cd
             FROM SALES_TBL
             WHERE drug_cd = @drug_cd
               AND sales_index BETWEEN @startIndex AND @endIndex
+              ${csoFilterSub}
             GROUP BY hos_cd, hos_cso_cd
             ORDER BY SUM(drug_cnt * drug_price) DESC
           )
@@ -160,10 +196,7 @@ export async function getDrugSales(drug_cd: string, period?: PeriodInfo): Promis
       `),
 
     // TOP CSO (최대 10개) - SALES_TBL 직접 조회
-    pool.request()
-      .input('drug_cd', sql.NVarChar, drug_cd)
-      .input('startIndex', sql.Int, startIndex)
-      .input('endIndex', sql.Int, endIndex)
+    createRequest()
       .input('limit', sql.Int, MAX_CSOS)
       .query(`
         SELECT TOP (@limit)
@@ -174,15 +207,13 @@ export async function getDrugSales(drug_cd: string, period?: PeriodInfo): Promis
         LEFT JOIN CSO_TBL c ON s.cso_cd_then = c.cso_cd
         WHERE s.drug_cd = @drug_cd
           AND s.sales_index BETWEEN @startIndex AND @endIndex
+          ${csoFilter}
         GROUP BY s.cso_cd_then, c.cso_dealer_nm
         ORDER BY SUM(s.drug_cnt * s.drug_price) DESC
       `),
 
     // TOP CSO별 월별 매출 - SALES_TBL 직접 조회
-    pool.request()
-      .input('drug_cd', sql.NVarChar, drug_cd)
-      .input('startIndex', sql.Int, startIndex)
-      .input('endIndex', sql.Int, endIndex)
+    createRequest()
       .input('limit', sql.Int, MAX_CSOS)
       .query(`
         SELECT
@@ -194,11 +225,13 @@ export async function getDrugSales(drug_cd: string, period?: PeriodInfo): Promis
         LEFT JOIN CSO_TBL c ON s.cso_cd_then = c.cso_cd
         WHERE s.drug_cd = @drug_cd
           AND s.sales_index BETWEEN @startIndex AND @endIndex
+          ${csoFilter}
           AND s.cso_cd_then IN (
             SELECT TOP (@limit) cso_cd_then
             FROM SALES_TBL
             WHERE drug_cd = @drug_cd
               AND sales_index BETWEEN @startIndex AND @endIndex
+              ${csoFilterSub}
             GROUP BY cso_cd_then
             ORDER BY SUM(drug_cnt * drug_price) DESC
           )
@@ -207,27 +240,23 @@ export async function getDrugSales(drug_cd: string, period?: PeriodInfo): Promis
       `),
 
     // 요약 - 병원 수 (SALES_TBL 직접 조회)
-    pool.request()
-      .input('drug_cd', sql.NVarChar, drug_cd)
-      .input('startIndex', sql.Int, startIndex)
-      .input('endIndex', sql.Int, endIndex)
+    createRequest()
       .query(`
         SELECT COUNT(DISTINCT hos_cd + hos_cso_cd) AS hospital_count
-        FROM SALES_TBL
+        FROM SALES_TBL s
         WHERE drug_cd = @drug_cd
           AND sales_index BETWEEN @startIndex AND @endIndex
+          ${csoFilter}
       `),
 
     // 요약 - CSO 수 (SALES_TBL 직접 조회)
-    pool.request()
-      .input('drug_cd', sql.NVarChar, drug_cd)
-      .input('startIndex', sql.Int, startIndex)
-      .input('endIndex', sql.Int, endIndex)
+    createRequest()
       .query(`
         SELECT COUNT(DISTINCT cso_cd_then) AS cso_count
-        FROM SALES_TBL
+        FROM SALES_TBL s
         WHERE drug_cd = @drug_cd
           AND sales_index BETWEEN @startIndex AND @endIndex
+          ${csoFilter}
       `),
 
     // 의약품 상세 정보 (약가, 수수료율, 성분 등)
